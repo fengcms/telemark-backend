@@ -176,7 +176,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 └──────────┘                                  └──────────┘
 ```
 
-- **AccessToken**：JWT (HS256)，15 分钟有效期，通过 `Authorization: Bearer <token>` 传递
+- **AccessToken**：JWT (HS256)，12 小时有效期，通过 `Authorization: Bearer <token>` 传递
 - **RefreshToken**：随机字符串，14 天有效期，存储在 Cloudflare KV，用于无感续期
 
 ## 开发命令

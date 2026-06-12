@@ -7,7 +7,7 @@
 - 本地开发地址：`http://localhost:8787`
 - JSON 请求头：`Content-Type: application/json`
 - 认证请求头：`Authorization: Bearer <accessToken>`
-- AccessToken 有效期：15 分钟
+- AccessToken 有效期：12 小时
 - RefreshToken 有效期：14 天，存储在 Cloudflare KV 绑定 `c_kv`
 - 角色枚举：`1` 超级管理员，`2` 经理，`3` 普通员工
 - 客户状态枚举：`0` 未拨打，`1` 已接听，`2` 无人接听，`3` 拒接，`4` 空号停机
@@ -163,7 +163,7 @@ curl -X POST http://localhost:8787/api/auth/refresh \
 - 验证 AccessToken 有效后，从请求体中取出 `refreshToken`
 - 在 KV 中查找该 `refreshToken`，若不存在则返回 `403`
 - 存在则调用 `kv.delete` 彻底销毁，此后该 RefreshToken 无法再用于 `/api/auth/refresh`
-- AccessToken 本身不会立即失效（仍在其 15 分钟有效期内），前端应同时清除本地存储的 AccessToken
+- AccessToken 本身不会立即失效（仍在其 12 小时有效期内），前端应同时清除本地存储的 AccessToken
 
 错误响应：
 

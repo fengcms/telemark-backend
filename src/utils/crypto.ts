@@ -1,4 +1,4 @@
-const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
 export interface AccessTokenPayload {
 	user_id: number;

@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { createDb, type Db } from '../db';
 import { users } from '../db/schema';
 
-const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 14 * 24 * 60 * 60;
 const LOCAL_DEV_JWT_SECRET = 'local-dev-change-me-before-production';
 
