@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, isNotNull, isNull, type SQL } from 'drizzle-orm';
 import type { Db } from '@/db';
 import { customers } from '@/db/schema';
 import {
@@ -75,10 +75,13 @@ export async function listCustomersService(
 	db: Db,
 	query: Record<string, string | string[] | undefined>,
 ): Promise<ListQueryResult<CustomerListItem>> {
+	const forcedConditions = resolveIsAssignedCondition(query.is_assigned);
+
 	return handleListQuery(customers, query, {
 		db,
 		allowedFields: CUSTOMER_LIST_ALLOWED_FIELDS,
 		defaultSortField: 'id',
+		forcedConditions,
 	});
 }
 
@@ -187,6 +190,20 @@ function resolveAssignmentAction(fromUserId: number | null, targetUserId: number
 	}
 
 	return fromUserId === null ? ASSIGNMENT_ACTION_ASSIGN : ASSIGNMENT_ACTION_TRANSFER;
+}
+
+function resolveIsAssignedCondition(isAssigned: string | string[] | undefined): SQL[] {
+	const value = typeof isAssigned === 'string' ? isAssigned.trim() : '';
+
+	if (value === '0') {
+		return [isNull(customers.ownerId)];
+	}
+
+	if (value === '1') {
+		return [isNotNull(customers.ownerId)];
+	}
+
+	return [];
 }
 
 function normalizePhone(phone: string): string | null {

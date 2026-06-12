@@ -242,6 +242,8 @@ curl -X POST http://localhost:8787/api/batches/import \
 - `role-in=1,2`：集合查询
 - `duration-gt=30`：大于查询
 - 支持 `lt`、`lteq`、`gteq`
+- `is_assigned=0`：仅查询公海未分配客户（`owner_id IS NULL`）
+- `is_assigned=1`：仅查询已分配客户（`owner_id IS NOT NULL`）
 
 响应：
 
@@ -272,6 +274,13 @@ curl：
 
 ```bash
 curl 'http://localhost:8787/api/customers?page=0&pagesize=10&sort=id&name-like=客户' \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+查询公海未分配客户：
+
+```bash
+curl 'http://localhost:8787/api/customers?is_assigned=0&page=0&pagesize=10' \
   -H "Authorization: Bearer <accessToken>"
 ```
 
