@@ -20,6 +20,20 @@ export interface RefreshInput {
 	refreshToken: string;
 }
 
+export interface LogoutInput {
+	refreshToken: string;
+}
+
+export type LogoutResult =
+	| {
+			ok: true;
+	  }
+	| {
+			ok: false;
+			status: 403;
+			message: string;
+	  };
+
 export interface InitializeAdminInput {
 	username: string;
 	frontendPasswordHash: string;
@@ -166,6 +180,24 @@ export async function refreshService(deps: AuthServiceDeps, input: RefreshInput)
 	return {
 		ok: true,
 		accessToken,
+	};
+}
+
+export async function logoutService(deps: AuthServiceDeps, input: LogoutInput): Promise<LogoutResult> {
+	const session = await deps.kv.get<RefreshSession>(input.refreshToken, 'json');
+
+	if (!session) {
+		return {
+			ok: false,
+			status: 403,
+			message: 'refreshToken 无效或已过期',
+		};
+	}
+
+	await deps.kv.delete(input.refreshToken);
+
+	return {
+		ok: true,
 	};
 }
 

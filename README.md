@@ -150,6 +150,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 | POST | /api/auth/init-admin | 初始化管理员 | 仅本地开发 |
 | POST | /api/auth/login | 登录 | 公开 |
 | POST | /api/auth/refresh | 刷新 Token | 公开 |
+| POST | /api/auth/logout | 退出登录 | 已登录用户 |
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
@@ -159,6 +160,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 | PATCH | /api/users/:id | 修改员工 | 管理员 |
 | DELETE | /api/users/:id | 禁用员工 | 管理员 |
 | POST | /api/calls/report | 回传通话结果 | 经理/员工 |
+| GET | /api/my-summary | 今日战报 | 经理/员工 |
 
 ## 认证机制
 

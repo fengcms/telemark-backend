@@ -160,22 +160,24 @@ export async function updateUserService(db: Db, input: UpdateUserInput): Promise
 		}
 	}
 
-	const credentials = input.frontendPasswordHash ? await createPasswordCredentials(input.frontendPasswordHash) : null;
-	const result = await db
-		.update(users)
-		.set({
-			username: input.username,
-			passwordHash: credentials?.passwordHash,
-			salt: credentials?.salt,
-			realName: input.realName,
-			phone: input.phone,
-			role: input.role,
-			status: input.status,
-			remark: input.remark,
-			updatedAt: new Date().toISOString(),
-		})
-		.where(eq(users.id, input.id))
-		.returning(safeUserReturningFields);
+	const hasValidPassword = typeof input.frontendPasswordHash === 'string' && input.frontendPasswordHash.trim().length > 0;
+	const credentials = hasValidPassword ? await createPasswordCredentials(input.frontendPasswordHash as string) : null;
+	const updateData: Record<string, unknown> = {
+		username: input.username,
+		realName: input.realName,
+		phone: input.phone,
+		role: input.role,
+		status: input.status,
+		remark: input.remark,
+		updatedAt: new Date().toISOString(),
+	};
+
+	if (credentials) {
+		updateData.passwordHash = credentials.passwordHash;
+		updateData.salt = credentials.salt;
+	}
+
+	const result = await db.update(users).set(updateData).where(eq(users.id, input.id)).returning(safeUserReturningFields);
 
 	const user = result[0];
 

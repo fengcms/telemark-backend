@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '@/db';
 import { agentDailySummaries, callLogs, customers } from '@/db/schema';
 
@@ -16,6 +16,27 @@ export async function findCustomerForCall(db: Db, customerId: number): Promise<{
 	return db.query.customers.findFirst({
 		where: eq(customers.id, customerId),
 		columns: { id: true },
+	});
+}
+
+export interface DailySummaryRow {
+	totalCalls: number;
+	connectedCalls: number;
+	totalDuration: number;
+	firstCallTime: string | null;
+	lastCallTime: string | null;
+}
+
+export async function findDailySummaryByUserAndDate(db: Db, userId: number, date: string): Promise<DailySummaryRow | undefined> {
+	return db.query.agentDailySummaries.findFirst({
+		where: and(eq(agentDailySummaries.userId, userId), eq(agentDailySummaries.date, date)),
+		columns: {
+			totalCalls: true,
+			connectedCalls: true,
+			totalDuration: true,
+			firstCallTime: true,
+			lastCallTime: true,
+		},
 	});
 }
 

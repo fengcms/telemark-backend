@@ -1,5 +1,5 @@
 import type { Db } from '@/db';
-import { findCustomerForCall, writeCallReportBatch } from '@/repositories/call.repository';
+import { findCustomerForCall, findDailySummaryByUserAndDate, writeCallReportBatch } from '@/repositories/call.repository';
 
 export interface CallActor {
 	id: number;
@@ -58,6 +58,41 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 		customerId: input.customerId,
 		userId: input.userId,
 		date,
+	};
+}
+
+export interface MySummaryInput {
+	userId: number;
+}
+
+export interface MySummaryResult {
+	totalCalls: number;
+	connectedCalls: number;
+	totalDuration: number;
+	firstCallTime: string | null;
+	lastCallTime: string | null;
+}
+
+export async function getMySummaryService(db: Db, input: MySummaryInput): Promise<MySummaryResult> {
+	const today = formatBusinessDate(new Date());
+	const row = await findDailySummaryByUserAndDate(db, input.userId, today);
+
+	if (!row) {
+		return {
+			totalCalls: 0,
+			connectedCalls: 0,
+			totalDuration: 0,
+			firstCallTime: null,
+			lastCallTime: null,
+		};
+	}
+
+	return {
+		totalCalls: row.totalCalls,
+		connectedCalls: row.connectedCalls,
+		totalDuration: row.totalDuration,
+		firstCallTime: row.firstCallTime,
+		lastCallTime: row.lastCallTime,
 	};
 }
 

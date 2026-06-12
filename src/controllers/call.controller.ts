@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
-import { type CallActor, reportCallService } from '@/services/call.service';
+import { type CallActor, getMySummaryService, reportCallService } from '@/services/call.service';
 
 type CallContext = Context<{
 	Bindings: Env;
@@ -39,6 +39,14 @@ export const callController = {
 		if (!result.ok) {
 			return c.json({ message: result.message }, result.status);
 		}
+
+		return c.json(result);
+	},
+
+	async mySummary(c: CallContext) {
+		const result = await getMySummaryService(createDb(c.env.DB), {
+			userId: c.get('currentUser').id,
+		});
 
 		return c.json(result);
 	},

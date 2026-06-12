@@ -39,6 +39,7 @@ const requireEmployeeOrManager: MiddlewareHandler<CallRoutesEnv> = async (c, nex
 };
 
 callRoutes.post('/calls/report', requireEmployeeOrManager, callController.report);
+callRoutes.get('/my-summary', requireEmployeeOrManager, callController.mySummary);
 
 function extractBearerToken(authorization: string | undefined): string | null {
 	if (!authorization) {

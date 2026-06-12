@@ -136,6 +136,52 @@ curl -X POST http://localhost:8787/api/auth/refresh \
   -d '{"refreshToken":"<refreshToken>"}'
 ```
 
+### POST /api/auth/logout
+
+退出登录。需要携带有效的 AccessToken，同时传入当前用户的 RefreshToken，后端将销毁该 RefreshToken 使其无法再用于续期。
+
+权限：需要有效的短 Token。
+
+请求：
+
+```json
+{
+  "refreshToken": "random-refresh-token"
+}
+```
+
+响应：
+
+```json
+{
+  "ok": true
+}
+```
+
+业务规则：
+
+- 验证 AccessToken 有效后，从请求体中取出 `refreshToken`
+- 在 KV 中查找该 `refreshToken`，若不存在则返回 `403`
+- 存在则调用 `kv.delete` 彻底销毁，此后该 RefreshToken 无法再用于 `/api/auth/refresh`
+- AccessToken 本身不会立即失效（仍在其 15 分钟有效期内），前端应同时清除本地存储的 AccessToken
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `refreshToken` 为空 |
+| 401 | AccessToken 缺失或无效 |
+| 403 | RefreshToken 无效或已过期 |
+
+curl：
+
+```bash
+curl -X POST http://localhost:8787/api/auth/logout \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <accessToken>" \
+  -d '{"refreshToken":"<refreshToken>"}'
+```
+
 ## 线索与批次接口
 
 ### POST /api/batches/import
@@ -421,6 +467,12 @@ curl -X POST http://localhost:8787/api/users \
 }
 ```
 
+密码空值保护：
+
+- 当 `password` 为 `undefined`、空字符串 `""` 或全空格字符串时，后端**不会**触发密码重置逻辑，也不会更新 `password_hash` 和 `salt` 字段，仅更新其他传入的资料字段
+- 只有当 `password` 是一个非空的有效哈希字符串时，才会重新生成 salt 并计算新的密码哈希进行更新
+- 前端在仅修改资料（不重置密码）的场景下，可以不传 `password` 字段，或传空值
+
 curl：
 
 ```bash
@@ -487,6 +539,53 @@ curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
   -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向"}'
+```
+
+### GET /api/my-summary
+
+获取当前登录员工今日战报数据。仅 `role=2` 或 `role=3` 可调用。
+
+后端从 AccessToken 中解析出当前用户 ID，查询 `agent_daily_summaries` 表中该用户今天的统计记录。日期基准为 `Asia/Shanghai` 时区，与通话回传的日报生成逻辑一致。
+
+响应（有通话记录时）：
+
+```json
+{
+  "totalCalls": 12,
+  "connectedCalls": 5,
+  "totalDuration": 396,
+  "firstCallTime": "2026-06-12T09:15:30.000Z",
+  "lastCallTime": "2026-06-12T17:42:18.000Z"
+}
+```
+
+响应（今日无通话记录时）：
+
+```json
+{
+  "totalCalls": 0,
+  "connectedCalls": 0,
+  "totalDuration": 0,
+  "firstCallTime": null,
+  "lastCallTime": null
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `totalCalls` | number | 今日总拨打次数 |
+| `connectedCalls` | number | 今日接通次数（`duration > 0` 且 `callResult=1`） |
+| `totalDuration` | number | 今日总通话时长（秒） |
+| `firstCallTime` | string \| null | 今日首次拨打时间（ISO 8601） |
+| `lastCallTime` | string \| null | 今日最后拨打时间（ISO 8601） |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/my-summary' \
+  -H "Authorization: Bearer <employeeOrManagerAccessToken>"
 ```
 
 ## 本地联调建议顺序
