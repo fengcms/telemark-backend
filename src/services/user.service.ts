@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, type SQL } from 'drizzle-orm';
 import type { Db } from '@/db';
 import { users } from '@/db/schema';
 import { createSalt, hashPasswordWithSalt } from '@/utils/crypto';
@@ -81,11 +81,13 @@ export async function listActiveUsersService(
 	db: Db,
 	query: Record<string, string | string[] | undefined>,
 ): Promise<ListQueryResult<Pick<SafeUser, (typeof USER_LIST_ALLOWED_FIELDS)[number]>>> {
+	const forcedConditions = resolveIsDisableCondition(query.is_disable);
+
 	return handleListQuery(users, query, {
 		db,
 		allowedFields: USER_LIST_ALLOWED_FIELDS,
 		defaultSortField: 'id',
-		forcedConditions: [eq(users.status, 1)],
+		forcedConditions,
 	});
 }
 
@@ -247,4 +249,18 @@ function normalizeNullableString(value: string | undefined): string | null {
 	const normalized = value.trim();
 
 	return normalized.length > 0 ? normalized : null;
+}
+
+function resolveIsDisableCondition(isDisable: string | string[] | undefined): SQL[] {
+	const value = typeof isDisable === 'string' ? isDisable.trim() : '';
+
+	if (value === '0') {
+		return [eq(users.status, 1)];
+	}
+
+	if (value === '1') {
+		return [eq(users.status, 0)];
+	}
+
+	return [eq(users.status, 1)];
 }

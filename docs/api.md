@@ -379,13 +379,18 @@ curl -X POST http://localhost:8787/api/customers/assign \
 
 ### GET /api/users
 
-获取在职员工列表。仅 `role=1` 或 `role=2` 可调用。
+获取员工列表。仅 `role=1` 或 `role=2` 可调用。
 
 安全规则：
 
-- 强制 `status = 1`
+- 默认仅返回在职员工（`status = 1`）
 - 返回字段白名单不包含 `passwordHash`
 - 返回字段白名单不包含 `salt`
+
+快捷参数：
+
+- `is_disable=0`：仅查询在职员工（`status = 1`），默认行为
+- `is_disable=1`：仅查询已禁用员工（`status = 0`）
 
 响应：
 
@@ -414,6 +419,13 @@ curl：
 
 ```bash
 curl 'http://localhost:8787/api/users?page=0&pagesize=10&role=3' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+查询已禁用员工：
+
+```bash
+curl 'http://localhost:8787/api/users?is_disable=1&page=0&pagesize=10' \
   -H "Authorization: Bearer <adminOrManagerAccessToken>"
 ```
 
