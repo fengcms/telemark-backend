@@ -1,49 +1,18 @@
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
 import { authController } from '@/controllers/auth.controller';
-import { type VerifiedAccessTokenPayload, verifyAccessToken } from '@/utils/crypto';
+import { type CurrentUser, requireAuth } from '@/middleware/auth.middleware';
 
 type AuthRoutesEnv = {
 	Bindings: Env;
 	Variables: {
-		authPayload: VerifiedAccessTokenPayload;
+		currentUser: CurrentUser;
 	};
 };
 
 export const authRoutes = new Hono<AuthRoutesEnv>();
 
-const requireAuthenticated: MiddlewareHandler<AuthRoutesEnv> = async (c, next) => {
-	const token = extractBearerToken(c.req.header('authorization'));
-
-	if (!token) {
-		return c.json({ message: '未登录或 AccessToken 缺失' }, 401);
-	}
-
-	const payload = await verifyAccessToken(token, c.env.JWT_SECRET);
-
-	if (!payload) {
-		return c.json({ message: 'AccessToken 无效或已过期' }, 401);
-	}
-
-	c.set('authPayload', payload);
-	await next();
-};
-
 authRoutes.post('/init-admin', authController.initAdmin);
 authRoutes.post('/login', authController.login);
 authRoutes.post('/refresh', authController.refresh);
-authRoutes.post('/logout', requireAuthenticated, authController.logout);
-authRoutes.post('/change-password', requireAuthenticated, authController.changePassword);
-
-function extractBearerToken(authorization: string | undefined): string | null {
-	if (!authorization) {
-		return null;
-	}
-
-	const [scheme, token] = authorization.split(' ');
-
-	if (scheme !== 'Bearer' || !token) {
-		return null;
-	}
-
-	return token;
-}
+authRoutes.post('/logout', requireAuth(), authController.logout);
+authRoutes.post('/change-password', requireAuth(), authController.changePassword);

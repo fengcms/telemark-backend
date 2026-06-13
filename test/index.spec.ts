@@ -6,7 +6,7 @@ import {
 } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import worker from "../src/index";
-import { createAccessToken } from "../src/utils/crypto";
+import { createAccessToken, createSalt, hashPasswordWithSalt } from "../src/utils/crypto";
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -389,6 +389,149 @@ describe("Hello World worker", () => {
 			total_duration: 66,
 		});
 	});
+
+	it("rejects disabled users for login, old access tokens, and refresh tokens", async () => {
+		await ensureCrmTables();
+
+		const account = await createLoginUser("disable_flow", 3);
+
+		const loginResponse = await SELF.fetch("https://example.com/api/auth/login", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ username: account.username, password: account.frontendPasswordHash }),
+		});
+
+		expect(loginResponse.status).toBe(200);
+		const loginBody = await loginResponse.json<{ accessToken: string; refreshToken: string }>();
+
+		await setUserStatus(account.id, 0);
+
+		const disabledLoginResponse = await SELF.fetch("https://example.com/api/auth/login", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ username: account.username, password: account.frontendPasswordHash }),
+		});
+
+		expect(disabledLoginResponse.status).toBe(401);
+
+		const oldAccessResponse = await SELF.fetch("https://example.com/api/my-summary", {
+			headers: { authorization: `Bearer ${loginBody.accessToken}` },
+		});
+
+		expect(oldAccessResponse.status).toBe(401);
+
+		const disabledRefreshResponse = await SELF.fetch("https://example.com/api/auth/refresh", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ refreshToken: loginBody.refreshToken }),
+		});
+
+		expect(disabledRefreshResponse.status).toBe(403);
+
+		await setUserStatus(account.id, 1);
+
+		const restoredLoginResponse = await SELF.fetch("https://example.com/api/auth/login", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ username: account.username, password: account.frontendPasswordHash }),
+		});
+
+		expect(restoredLoginResponse.status).toBe(200);
+
+		const oldRefreshAfterRestoreResponse = await SELF.fetch("https://example.com/api/auth/refresh", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ refreshToken: loginBody.refreshToken }),
+		});
+
+		expect(oldRefreshAfterRestoreResponse.status).toBe(403);
+	});
+
+	it("enforces role permissions through protected routes", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("role_admin", 1);
+		const manager = await createTestUser("role_manager", 2);
+		const employee = await createTestUser("role_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+
+		const adminUsersResponse = await SELF.fetch("https://example.com/api/users", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(adminUsersResponse.status).toBe(200);
+
+		const managerCreateUserResponse = await SELF.fetch("https://example.com/api/users", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${managerToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				username: `blocked_${crypto.randomUUID()}`,
+				password: await sha256Hex("blocked-password"),
+				realName: "越权创建",
+				role: 3,
+			}),
+		});
+
+		expect(managerCreateUserResponse.status).toBe(403);
+
+		const employeeCustomersResponse = await SELF.fetch("https://example.com/api/customers", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const employeeUsersResponse = await SELF.fetch("https://example.com/api/users", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+
+		expect(employeeCustomersResponse.status).toBe(403);
+		expect(employeeUsersResponse.status).toBe(403);
+	});
+
+	it("validates assignment target status and role", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("assign_admin", 1);
+		const manager = await createTestUser("assign_manager", 2);
+		const employee = await createTestUser("assign_employee", 3);
+		const disabledEmployee = await createTestUser("assign_disabled", 3);
+		const superAdminTarget = await createTestUser("assign_super", 1);
+		const adminToken = await tokenFor(admin);
+		const customer = await createCustomer(admin.id, null);
+
+		await setUserStatus(disabledEmployee.id, 0);
+
+		await expectAssign(adminToken, customer.id, manager.id, 200);
+		await expectAssign(adminToken, customer.id, employee.id, 200);
+		await expectAssign(adminToken, customer.id, disabledEmployee.id, 400);
+		await expectAssign(adminToken, customer.id, superAdminTarget.id, 400);
+		await expectAssign(adminToken, customer.id, null, 200);
+	});
+
+	it("enforces customer ownership for call reporting", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("call_admin", 1);
+		const manager = await createTestUser("call_manager", 2);
+		const employee = await createTestUser("call_employee", 3);
+		const otherEmployee = await createTestUser("call_other", 3);
+		const employeeToken = await tokenFor(employee);
+		const managerToken = await tokenFor(manager);
+		const adminToken = await tokenFor(admin);
+		const ownedCustomer = await createCustomer(admin.id, employee.id);
+		const otherCustomer = await createCustomer(admin.id, otherEmployee.id);
+		const publicCustomer = await createCustomer(admin.id, null);
+		const managerCustomer = await createCustomer(admin.id, manager.id);
+
+		expect(await reportCallStatus(employeeToken, ownedCustomer.id)).toBe(200);
+		expect(await reportCallStatus(employeeToken, otherCustomer.id)).toBe(403);
+		expect(await reportCallStatus(employeeToken, publicCustomer.id)).toBe(403);
+		expect(await reportCallStatus(managerToken, managerCustomer.id)).toBe(200);
+		expect(await reportCallStatus(managerToken, ownedCustomer.id)).toBe(403);
+		expect(await reportCallStatus(adminToken, ownedCustomer.id)).toBe(403);
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -431,6 +574,108 @@ async function createTestUser(
 	}
 
 	return result;
+}
+
+async function createLoginUser(
+	usernamePrefix: string,
+	role: number,
+): Promise<{ id: number; username: string; role: number; frontendPasswordHash: string }> {
+	const username = `${usernamePrefix}_${crypto.randomUUID()}`;
+	const frontendPasswordHash = await sha256Hex(`password_${crypto.randomUUID()}`);
+	const salt = createSalt();
+	const passwordHash = await hashPasswordWithSalt(frontendPasswordHash, salt);
+	const result = await env.DB.prepare(
+		"INSERT INTO users (username, password_hash, salt, real_name, role, status) VALUES (?, ?, ?, ?, ?, 1) RETURNING id, username, role",
+	)
+		.bind(username, passwordHash, salt, username, role)
+		.first<{ id: number; username: string; role: number }>();
+
+	if (!result) {
+		throw new Error("创建登录测试用户失败");
+	}
+
+	return {
+		...result,
+		frontendPasswordHash,
+	};
+}
+
+async function tokenFor(user: { id: number; username: string; role: number }): Promise<string> {
+	return createAccessToken(
+		{
+			user_id: user.id,
+			username: user.username,
+			role: user.role,
+		},
+		env.JWT_SECRET,
+	);
+}
+
+async function setUserStatus(userId: number, status: 0 | 1): Promise<void> {
+	await env.DB.prepare("UPDATE users SET status = ? WHERE id = ?").bind(status, userId).run();
+}
+
+async function createCustomer(creatorId: number, ownerId: number | null): Promise<{ id: number; phone: string }> {
+	const batch = await env.DB.prepare(
+		"INSERT INTO batches (name, source, cost, total_count, creator_id) VALUES (?, ?, 0, 1, ?) RETURNING id",
+	)
+		.bind(`测试批次_${crypto.randomUUID()}`, "unit-test", creatorId)
+		.first<{ id: number }>();
+
+	if (!batch) {
+		throw new Error("创建测试批次失败");
+	}
+
+	const phone = `139${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+	const customer = await env.DB.prepare(
+		"INSERT INTO customers (phone, name, company, owner_id, batch_id) VALUES (?, ?, ?, ?, ?) RETURNING id",
+	)
+		.bind(phone, "测试客户", "测试公司", ownerId, batch.id)
+		.first<{ id: number }>();
+
+	if (!customer) {
+		throw new Error("创建测试客户失败");
+	}
+
+	return {
+		id: customer.id,
+		phone,
+	};
+}
+
+async function expectAssign(token: string, customerId: number, targetUserId: number | null, expectedStatus: number): Promise<void> {
+	const response = await SELF.fetch("https://example.com/api/customers/assign", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			customerIds: [customerId],
+			targetUserId,
+			reason: "安全测试分配",
+		}),
+	});
+
+	expect(response.status).toBe(expectedStatus);
+}
+
+async function reportCallStatus(token: string, customerId: number): Promise<number> {
+	const response = await SELF.fetch("https://example.com/api/calls/report", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			customerId,
+			duration: 30,
+			callResult: 1,
+			callRemark: "安全测试通话",
+		}),
+	});
+
+	return response.status;
 }
 
 async function sha256Hex(input: string): Promise<string> {

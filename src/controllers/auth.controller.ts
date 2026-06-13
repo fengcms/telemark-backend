@@ -1,14 +1,14 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
+import type { CurrentUser } from '@/middleware/auth.middleware';
 import { changePasswordService, initializeAdminService, loginService, logoutService, refreshService } from '@/services/auth.service';
-import type { VerifiedAccessTokenPayload } from '@/utils/crypto';
 
 const LOCAL_DEV_JWT_SECRET = 'local-dev-change-me-before-production';
 
 type AuthContext = Context<{
 	Bindings: Env;
 	Variables: {
-		authPayload: VerifiedAccessTokenPayload;
+		currentUser: CurrentUser;
 	};
 }>;
 
@@ -128,7 +128,7 @@ export const authController = {
 	},
 
 	async changePassword(c: AuthContext) {
-		const payload = c.get('authPayload');
+		const currentUser = c.get('currentUser');
 		const body = await c.req.json<ChangePasswordRequestBody>().catch(() => null);
 		const oldPassword = normalizeRequiredString(body?.oldPassword);
 		const newPassword = normalizeRequiredString(body?.newPassword);
@@ -138,7 +138,7 @@ export const authController = {
 		}
 
 		const result = await changePasswordService(createAuthDeps(c), {
-			userId: payload.user_id,
+			userId: currentUser.id,
 			oldFrontendPasswordHash: oldPassword,
 			newFrontendPasswordHash: newPassword,
 		});

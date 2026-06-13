@@ -71,6 +71,15 @@ export type CustomerListItem = {
 	[TKey in (typeof CUSTOMER_LIST_ALLOWED_FIELDS)[number]]: (typeof customers)[TKey] extends { _: { data: infer TData } } ? TData : unknown;
 };
 
+export class AssignCustomersError extends Error {
+	readonly status: 400 | 404;
+
+	constructor(status: 400 | 404, message: string) {
+		super(message);
+		this.status = status;
+	}
+}
+
 export async function listCustomersService(
 	db: Db,
 	query: Record<string, string | string[] | undefined>,
@@ -151,7 +160,15 @@ export async function assignCustomersService(db: Db, input: AssignCustomersInput
 		const targetUser = await findActiveUserById(db, input.targetUserId);
 
 		if (!targetUser) {
-			throw new Error('目标员工不存在');
+			throw new AssignCustomersError(404, '目标员工不存在');
+		}
+
+		if (targetUser.status !== 1) {
+			throw new AssignCustomersError(400, '目标员工已被禁用');
+		}
+
+		if (targetUser.role !== 2 && targetUser.role !== 3) {
+			throw new AssignCustomersError(400, '目标员工角色不允许分配客户');
 		}
 	}
 

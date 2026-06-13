@@ -1,7 +1,8 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
+import type { CurrentUser } from '@/middleware/auth.middleware';
 import {
-	type Actor,
+	AssignCustomersError,
 	assignCustomersService,
 	type ImportCustomerInput,
 	importBatchService,
@@ -12,7 +13,7 @@ import {
 type CustomerContext = Context<{
 	Bindings: Env;
 	Variables: {
-		currentUser: Actor;
+		currentUser: CurrentUser;
 	};
 }>;
 
@@ -84,8 +85,8 @@ export const customerController = {
 
 			return c.json(result);
 		} catch (error) {
-			if (error instanceof Error && error.message === '目标员工不存在') {
-				return c.json({ message: error.message }, 400);
+			if (error instanceof AssignCustomersError) {
+				return c.json({ message: error.message }, error.status);
 			}
 
 			throw error;

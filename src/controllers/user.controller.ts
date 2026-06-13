@@ -1,11 +1,12 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
-import { createUserService, disableUserService, listActiveUsersService, type UserActor, updateUserService } from '@/services/user.service';
+import type { CurrentUser } from '@/middleware/auth.middleware';
+import { createUserService, disableUserService, listActiveUsersService, updateUserService } from '@/services/user.service';
 
 type UserContext = Context<{
 	Bindings: Env;
 	Variables: {
-		currentUser: UserActor;
+		currentUser: CurrentUser;
 	};
 }>;
 

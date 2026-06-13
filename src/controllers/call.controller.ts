@@ -1,11 +1,12 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
-import { type CallActor, getMySummaryService, reportCallService } from '@/services/call.service';
+import type { CurrentUser } from '@/middleware/auth.middleware';
+import { getMySummaryService, reportCallService } from '@/services/call.service';
 
 type CallContext = Context<{
 	Bindings: Env;
 	Variables: {
-		currentUser: CallActor;
+		currentUser: CurrentUser;
 	};
 }>;
 

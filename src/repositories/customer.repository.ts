@@ -74,10 +74,10 @@ export async function insertCustomer(db: Db, input: InsertCustomerInput): Promis
 	return customer;
 }
 
-export async function findActiveUserById(db: Db, userId: number): Promise<{ id: number } | undefined> {
+export async function findActiveUserById(db: Db, userId: number): Promise<{ id: number; role: number; status: number } | undefined> {
 	return db.query.users.findFirst({
 		where: eq(users.id, userId),
-		columns: { id: true },
+		columns: { id: true, role: true, status: true },
 	});
 }
 

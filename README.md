@@ -108,9 +108,25 @@ pnpm install
 
 ### 本地数据库迁移
 
+**推荐方式（自动处理兼容性问题）：**
+
+```bash
+./scripts/init-local-db.sh
+```
+
+此脚本会智能地初始化本地数据库，自动处理新旧版本迁移文件的兼容性问题。
+
+**传统方式（可能遇到错误）：**
+
 ```bash
 pnpm db:migrations:apply:local
 ```
+
+> ⚠️ **已知问题：** 如果在执行 `0003_upgrade_legacy_customers_schema.sql` 时遇到 `duplicate column name: batch_id` 错误，这是正常的。因为该迁移是为旧版本地库设计的升级脚本，与 `0001_initial_schema.sql` 存在列定义冲突。
+>
+> **解决方法：**
+> 1. 使用推荐的 `./scripts/init-local-db.sh` 脚本（已自动处理）
+> 2. 或手动忽略该错误，后续迁移仍会正常执行
 
 ### 启动开发服务器
 
@@ -191,7 +207,8 @@ pnpm lint:fix         # 自动修复代码问题
 pnpm format           # 检查格式
 pnpm format:fix       # 自动格式化
 pnpm cf-typegen       # 生成 Workers 类型定义
-pnpm db:migrations:apply:local  # 本地数据库迁移
+pnpm db:init:local    # 初始化本地数据库（推荐）
+pnpm db:migrations:apply:local  # 本地数据库迁移（传统方式）
 ```
 
 ## 部署

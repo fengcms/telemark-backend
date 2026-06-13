@@ -12,10 +12,10 @@ export interface ReportCallWriteInput {
 	date: string;
 }
 
-export async function findCustomerForCall(db: Db, customerId: number): Promise<{ id: number } | undefined> {
+export async function findCustomerForCall(db: Db, customerId: number): Promise<{ id: number; ownerId: number | null } | undefined> {
 	return db.query.customers.findFirst({
 		where: eq(customers.id, customerId),
-		columns: { id: true },
+		columns: { id: true, ownerId: true },
 	});
 }
 

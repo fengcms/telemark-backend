@@ -184,11 +184,31 @@ export async function refreshService(deps: AuthServiceDeps, input: RefreshInput)
 		};
 	}
 
+	const user = await deps.db.query.users.findFirst({
+		where: eq(users.id, session.id),
+		columns: {
+			id: true,
+			username: true,
+			role: true,
+			status: true,
+		},
+	});
+
+	if (user?.status !== 1) {
+		await deps.kv.delete(input.refreshToken);
+
+		return {
+			ok: false,
+			status: 403,
+			message: '登录状态已失效，请重新登录',
+		};
+	}
+
 	const accessToken = await createAccessToken(
 		{
-			user_id: session.id,
-			username: session.username,
-			role: session.role,
+			user_id: user.id,
+			username: user.username,
+			role: user.role,
 		},
 		deps.jwtSecret,
 	);

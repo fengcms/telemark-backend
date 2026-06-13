@@ -24,7 +24,7 @@ export type ReportCallResult =
 	  }
 	| {
 			ok: false;
-			status: 404;
+			status: 403 | 404;
 			message: string;
 	  };
 
@@ -36,6 +36,14 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 			ok: false,
 			status: 404,
 			message: '客户线索不存在',
+		};
+	}
+
+	if (customer.ownerId !== input.userId) {
+		return {
+			ok: false,
+			status: 403,
+			message: '无权上报该客户通话记录',
 		};
 	}
 
