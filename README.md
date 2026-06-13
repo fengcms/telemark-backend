@@ -151,6 +151,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 | POST | /api/auth/login | 登录 | 公开 |
 | POST | /api/auth/refresh | 刷新 Token | 公开 |
 | POST | /api/auth/logout | 退出登录 | 已登录用户 |
+| POST | /api/auth/change-password | 修改密码 | 已登录用户 |
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
@@ -171,7 +172,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 │          │     SHA-256(password + salt)     │          │
 │          │     ═══════════════════════►     │ 比对DB   │
 │          │                                  │          │
-│          │  ◄─── accessToken (15min) ───    │          │
+│          │  ◄─── accessToken (12h) ──────    │          │
 │          │  ◄─── refreshToken (14d) ────    │  KV存储  │
 └──────────┘                                  └──────────┘
 ```

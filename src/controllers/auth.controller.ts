@@ -1,10 +1,16 @@
 import type { Context } from 'hono';
 import { createDb } from '@/db';
-import { initializeAdminService, loginService, logoutService, refreshService } from '@/services/auth.service';
+import { changePasswordService, initializeAdminService, loginService, logoutService, refreshService } from '@/services/auth.service';
+import type { VerifiedAccessTokenPayload } from '@/utils/crypto';
 
 const LOCAL_DEV_JWT_SECRET = 'local-dev-change-me-before-production';
 
-type AuthContext = Context<{ Bindings: Env }>;
+type AuthContext = Context<{
+	Bindings: Env;
+	Variables: {
+		authPayload: VerifiedAccessTokenPayload;
+	};
+}>;
 
 interface LoginRequestBody {
 	username?: unknown;
@@ -17,6 +23,11 @@ interface RefreshRequestBody {
 
 interface LogoutRequestBody {
 	refreshToken?: unknown;
+}
+
+interface ChangePasswordRequestBody {
+	oldPassword?: unknown;
+	newPassword?: unknown;
 }
 
 interface InitAdminRequestBody {
@@ -108,6 +119,29 @@ export const authController = {
 		}
 
 		const result = await logoutService(createAuthDeps(c), { refreshToken });
+
+		if (!result.ok) {
+			return c.json({ message: result.message }, result.status);
+		}
+
+		return c.json({ ok: true });
+	},
+
+	async changePassword(c: AuthContext) {
+		const payload = c.get('authPayload');
+		const body = await c.req.json<ChangePasswordRequestBody>().catch(() => null);
+		const oldPassword = normalizeRequiredString(body?.oldPassword);
+		const newPassword = normalizeRequiredString(body?.newPassword);
+
+		if (!oldPassword || !newPassword) {
+			return c.json({ message: 'oldPassword 和 newPassword 不能为空' }, 400);
+		}
+
+		const result = await changePasswordService(createAuthDeps(c), {
+			userId: payload.user_id,
+			oldFrontendPasswordHash: oldPassword,
+			newFrontendPasswordHash: newPassword,
+		});
 
 		if (!result.ok) {
 			return c.json({ message: result.message }, result.status);

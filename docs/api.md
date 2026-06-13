@@ -182,6 +182,54 @@ curl -X POST http://localhost:8787/api/auth/logout \
   -d '{"refreshToken":"<refreshToken>"}'
 ```
 
+### POST /api/auth/change-password
+
+修改当前登录用户的密码。需要携带有效的 AccessToken，用户只能修改自己的密码。
+
+权限：所有已登录用户（任何角色均可调用）。
+
+请求：
+
+```json
+{
+  "oldPassword": "SHA-256(旧明文密码)",
+  "newPassword": "SHA-256(新明文密码)"
+}
+```
+
+响应：
+
+```json
+{
+  "ok": true
+}
+```
+
+业务规则：
+
+- 从 AccessToken 中解析当前用户 ID，不接受外部传入的 userId，确保只能修改自己的密码
+- 验证旧密码：取出该用户的 `salt`，计算 `SHA-256(oldPassword + salt)` 与数据库中的 `password_hash` 做常量时间比对
+- 旧密码验证通过后，生成新的 `salt`，计算新密码哈希，同时更新 `password_hash` 和 `salt`
+- 密码规则与创建员工一致：前端提交的必须是 `SHA-256(明文密码)`，后端再执行 `SHA-256(前端哈希 + salt)`
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `oldPassword` 或 `newPassword` 为空 |
+| 401 | AccessToken 缺失或无效 |
+| 401 | 旧密码错误 |
+| 401 | 用户不存在或已被禁用 |
+
+curl：
+
+```bash
+curl -X POST http://localhost:8787/api/auth/change-password \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <accessToken>" \
+  -d '{"oldPassword":"<SHA-256-of-old-plaintext>","newPassword":"<SHA-256-of-new-plaintext>"}'
+```
+
 ## 线索与批次接口
 
 ### POST /api/batches/import

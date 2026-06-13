@@ -24,6 +24,12 @@ export interface LogoutInput {
 	refreshToken: string;
 }
 
+export interface ChangePasswordInput {
+	userId: number;
+	oldFrontendPasswordHash: string;
+	newFrontendPasswordHash: string;
+}
+
 export type LogoutResult =
 	| {
 			ok: true;
@@ -31,6 +37,16 @@ export type LogoutResult =
 	| {
 			ok: false;
 			status: 403;
+			message: string;
+	  };
+
+export type ChangePasswordResult =
+	| {
+			ok: true;
+	  }
+	| {
+			ok: false;
+			status: 401;
 			message: string;
 	  };
 
@@ -195,6 +211,52 @@ export async function logoutService(deps: AuthServiceDeps, input: LogoutInput): 
 	}
 
 	await deps.kv.delete(input.refreshToken);
+
+	return {
+		ok: true,
+	};
+}
+
+export async function changePasswordService(deps: AuthServiceDeps, input: ChangePasswordInput): Promise<ChangePasswordResult> {
+	const user = await deps.db.query.users.findFirst({
+		where: eq(users.id, input.userId),
+		columns: {
+			id: true,
+			passwordHash: true,
+			salt: true,
+			status: true,
+		},
+	});
+
+	if (!user || user.status === 0) {
+		return {
+			ok: false,
+			status: 401,
+			message: '用户不存在或已被禁用',
+		};
+	}
+
+	const oldPasswordHash = await hashPasswordWithSalt(input.oldFrontendPasswordHash, user.salt);
+
+	if (!timingSafeEqual(oldPasswordHash, user.passwordHash)) {
+		return {
+			ok: false,
+			status: 401,
+			message: '旧密码错误',
+		};
+	}
+
+	const newSalt = createSalt();
+	const newPasswordHash = await hashPasswordWithSalt(input.newFrontendPasswordHash, newSalt);
+
+	await deps.db
+		.update(users)
+		.set({
+			passwordHash: newPasswordHash,
+			salt: newSalt,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(eq(users.id, input.userId));
 
 	return {
 		ok: true,
