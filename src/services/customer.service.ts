@@ -2,11 +2,20 @@ import { eq, isNotNull, isNull, type SQL } from 'drizzle-orm';
 import type { Db } from '@/db';
 import { customers } from '@/db/schema';
 import {
+	batchUpdateCustomersByIds,
+	type CustomerBasicRow,
+	type CustomerDetailRow,
 	createBatch,
+	findActiveCustomersByIds,
 	findActiveUserById,
+	findCustomerBasicById,
 	findCustomerByPhone,
+	findCustomerDeleteStateById,
+	findCustomerDetailById,
 	findCustomersByIds,
 	insertCustomer,
+	softDeleteCustomerById,
+	updateCustomerById,
 	updateCustomersOwnerWithLogs,
 } from '@/repositories/customer.repository';
 import { handleListQuery, type ListQueryResult } from '@/utils/query-builder';
@@ -53,6 +62,23 @@ export interface AssignCustomersResult {
 	loggedCount: number;
 }
 
+export interface UpdateCustomerInput {
+	name?: string | null;
+	company?: string | null;
+	type?: number;
+	status?: number;
+	remark?: string | null;
+}
+
+export interface BatchUpdateCustomersInput {
+	customerIds: number[];
+	patch: {
+		type?: number;
+		status?: number;
+		remark?: string | null;
+	};
+}
+
 const CUSTOMER_LIST_ALLOWED_FIELDS = [
 	'id',
 	'phone',
@@ -80,11 +106,21 @@ export class AssignCustomersError extends Error {
 	}
 }
 
+export class CustomerMutationError extends Error {
+	readonly status: 400 | 404;
+
+	constructor(status: 400 | 404, message: string) {
+		super(message);
+		this.status = status;
+	}
+}
+
 export async function listCustomersService(
 	db: Db,
 	query: Record<string, string | string[] | undefined>,
 ): Promise<ListQueryResult<CustomerListItem>> {
 	const forcedConditions = resolveIsAssignedCondition(query.is_assigned);
+	forcedConditions.push(eq(customers.isDeleted, 0));
 
 	return handleListQuery(customers, query, {
 		db,
@@ -103,7 +139,7 @@ export async function listMyCustomersService(
 		db,
 		allowedFields: CUSTOMER_LIST_ALLOWED_FIELDS,
 		defaultSortField: 'id',
-		forcedConditions: [eq(customers.ownerId, userId), eq(customers.status, 0)],
+		forcedConditions: [eq(customers.ownerId, userId), eq(customers.status, 0), eq(customers.isDeleted, 0)],
 	});
 }
 
@@ -181,6 +217,10 @@ export async function assignCustomersService(db: Db, input: AssignCustomersInput
 		};
 	}
 
+	if (currentCustomers.some((customer) => customer.isDeleted === 1)) {
+		throw new AssignCustomersError(400, '已作废客户不允许分配');
+	}
+
 	await updateCustomersOwnerWithLogs(
 		db,
 		currentCustomers.map((customer) => customer.id),
@@ -199,6 +239,98 @@ export async function assignCustomersService(db: Db, input: AssignCustomersInput
 		updatedCount: currentCustomers.length,
 		loggedCount: currentCustomers.length,
 	};
+}
+
+export function parseCustomerId(value: string): number {
+	const parsed = Number(value);
+
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		throw new CustomerMutationError(400, '客户 ID 不合法');
+	}
+
+	return parsed;
+}
+
+export async function getCustomerDetailService(db: Db, id: number): Promise<CustomerDetailRow> {
+	const customer = await findCustomerDetailById(db, id);
+
+	if (!customer) {
+		throw new CustomerMutationError(404, '客户不存在');
+	}
+
+	return customer;
+}
+
+export async function updateCustomerService(db: Db, id: number, input: UpdateCustomerInput): Promise<CustomerBasicRow> {
+	const existing = await findCustomerBasicById(db, id);
+
+	if (!existing) {
+		throw new CustomerMutationError(404, '客户不存在');
+	}
+
+	const updated = await updateCustomerById(db, id, {
+		...input,
+		updatedAt: new Date().toISOString(),
+	});
+
+	if (!updated) {
+		throw new CustomerMutationError(404, '客户不存在');
+	}
+
+	return updated;
+}
+
+export async function deleteCustomerService(
+	db: Db,
+	input: { id: number; operatorId: number; reason?: string | null },
+): Promise<{ ok: true; id: number }> {
+	const existing = await findCustomerDeleteStateById(db, input.id);
+
+	if (!existing) {
+		throw new CustomerMutationError(404, '客户不存在');
+	}
+
+	if (existing.isDeleted === 1) {
+		return { ok: true, id: input.id };
+	}
+
+	await softDeleteCustomerById(db, {
+		id: input.id,
+		deletedAt: new Date().toISOString(),
+		deletedBy: input.operatorId,
+		deleteReason: normalizeNullableString(input.reason ?? undefined),
+	});
+
+	return { ok: true, id: input.id };
+}
+
+export async function batchUpdateCustomersService(db: Db, input: BatchUpdateCustomersInput): Promise<{ updatedCount: number }> {
+	const uniqueCustomerIds = Array.from(new Set(input.customerIds));
+
+	if (uniqueCustomerIds.length === 0) {
+		throw new CustomerMutationError(400, 'customerIds 不能为空');
+	}
+
+	if (uniqueCustomerIds.length > 500) {
+		throw new CustomerMutationError(400, 'customerIds 最多支持 500 个');
+	}
+
+	const currentCustomers = await findActiveCustomersByIds(db, uniqueCustomerIds);
+
+	if (currentCustomers.length !== uniqueCustomerIds.length) {
+		throw new CustomerMutationError(400, 'customerIds 中存在不存在的客户');
+	}
+
+	if (currentCustomers.some((customer) => customer.isDeleted === 1)) {
+		throw new CustomerMutationError(400, 'customerIds 中存在已作废客户');
+	}
+
+	const updatedCount = await batchUpdateCustomersByIds(db, uniqueCustomerIds, {
+		...input.patch,
+		updatedAt: new Date().toISOString(),
+	});
+
+	return { updatedCount };
 }
 
 function resolveAssignmentAction(fromUserId: number | null, targetUserId: number | null): number {

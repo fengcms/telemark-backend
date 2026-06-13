@@ -14,7 +14,7 @@ export interface ReportCallWriteInput {
 
 export async function findCustomerForCall(db: Db, customerId: number): Promise<{ id: number; ownerId: number | null } | undefined> {
 	return db.query.customers.findFirst({
-		where: eq(customers.id, customerId),
+		where: and(eq(customers.id, customerId), eq(customers.isDeleted, 0)),
 		columns: { id: true, ownerId: true },
 	});
 }

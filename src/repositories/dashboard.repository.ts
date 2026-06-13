@@ -43,7 +43,10 @@ export async function findDailySummaryMetrics(db: Db, date: string): Promise<Dai
 
 // First version: intentCustomers is cumulative customers.type=1, not daily newly-created intent customers.
 export async function countIntentCustomers(db: Db): Promise<number> {
-	const rows = await db.select({ total: count() }).from(customers).where(eq(customers.type, 1));
+	const rows = await db
+		.select({ total: count() })
+		.from(customers)
+		.where(and(eq(customers.type, 1), eq(customers.isDeleted, 0)));
 
 	return rows[0]?.total ?? 0;
 }

@@ -4,10 +4,17 @@ import type { CurrentUser } from '@/middleware/auth.middleware';
 import {
 	AssignCustomersError,
 	assignCustomersService,
+	batchUpdateCustomersService,
+	CustomerMutationError,
+	deleteCustomerService,
+	getCustomerDetailService,
 	type ImportCustomerInput,
 	importBatchService,
 	listCustomersService,
 	listMyCustomersService,
+	parseCustomerId,
+	type UpdateCustomerInput,
+	updateCustomerService,
 } from '@/services/customer.service';
 
 type CustomerContext = Context<{
@@ -28,6 +35,15 @@ interface AssignCustomersRequestBody {
 	customerIds?: unknown;
 	targetUserId?: unknown;
 	reason?: unknown;
+}
+
+interface DeleteCustomerRequestBody {
+	reason?: unknown;
+}
+
+interface BatchUpdateCustomersRequestBody {
+	customerIds?: unknown;
+	patch?: unknown;
 }
 
 export const customerController = {
@@ -92,6 +108,82 @@ export const customerController = {
 			throw error;
 		}
 	},
+
+	async detail(c: CustomerContext) {
+		try {
+			const id = parseCustomerId(c.req.param('id') ?? '');
+			const result = await getCustomerDetailService(createDb(c.env.DB), id);
+
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof CustomerMutationError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
+	},
+
+	async update(c: CustomerContext) {
+		const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+
+		try {
+			const id = parseCustomerId(c.req.param('id') ?? '');
+			const patch = normalizeCustomerPatch(body);
+			const result = await updateCustomerService(createDb(c.env.DB), id, patch);
+
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof CustomerMutationError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
+	},
+
+	async delete(c: CustomerContext) {
+		const body = await c.req.json<DeleteCustomerRequestBody>().catch(() => null);
+
+		try {
+			const id = parseCustomerId(c.req.param('id') ?? '');
+			const result = await deleteCustomerService(createDb(c.env.DB), {
+				id,
+				operatorId: c.get('currentUser').id,
+				reason: normalizeDeleteReason(body),
+			});
+
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof CustomerMutationError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
+	},
+
+	async batchUpdate(c: CustomerContext) {
+		const body = await c.req.json<BatchUpdateCustomersRequestBody>().catch(() => null);
+
+		try {
+			if (!isRecord(body)) {
+				throw new CustomerMutationError(400, '请求体不合法');
+			}
+
+			const customerIds = normalizeStrictIdArray(body.customerIds);
+			const patch = normalizeBatchUpdatePatch(body.patch);
+			const result = await batchUpdateCustomersService(createDb(c.env.DB), { customerIds, patch });
+
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof CustomerMutationError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
+	},
 };
 
 function normalizeRequiredString(value: unknown): string | null {
@@ -146,6 +238,22 @@ function normalizeIdArray(value: unknown): number[] {
 	return value.filter((item): item is number => Number.isInteger(item) && item > 0);
 }
 
+function normalizeStrictIdArray(value: unknown): number[] {
+	if (!Array.isArray(value) || value.length === 0) {
+		throw new CustomerMutationError(400, 'customerIds 必须是非空数组');
+	}
+
+	if (value.length > 500) {
+		throw new CustomerMutationError(400, 'customerIds 最多支持 500 个');
+	}
+
+	if (!value.every((item): item is number => Number.isInteger(item) && item > 0)) {
+		throw new CustomerMutationError(400, 'customerIds 必须都是正整数');
+	}
+
+	return value;
+}
+
 function normalizeNullableId(value: unknown): number | null | undefined {
 	if (value === null) {
 		return null;
@@ -164,4 +272,116 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function normalizeCustomerPatch(body: Record<string, unknown> | null): UpdateCustomerInput {
+	if (!isRecord(body)) {
+		throw new CustomerMutationError(400, '请求体不合法');
+	}
+
+	const allowedKeys = new Set(['name', 'company', 'type', 'status', 'remark']);
+	const keys = Object.keys(body);
+	const unknownKey = keys.find((key) => !allowedKeys.has(key));
+
+	if (unknownKey) {
+		throw new CustomerMutationError(400, `不允许更新字段：${unknownKey}`);
+	}
+
+	if (keys.length === 0) {
+		throw new CustomerMutationError(400, '请求体没有可更新字段');
+	}
+
+	const patch: UpdateCustomerInput = {};
+
+	if ('name' in body) {
+		patch.name = normalizeOptionalNullableString(body.name);
+	}
+
+	if ('company' in body) {
+		patch.company = normalizeOptionalNullableString(body.company);
+	}
+
+	if ('type' in body) {
+		patch.type = normalizeCustomerType(body.type);
+	}
+
+	if ('status' in body) {
+		patch.status = normalizeCustomerStatus(body.status);
+	}
+
+	if ('remark' in body) {
+		patch.remark = normalizeOptionalNullableString(body.remark);
+	}
+
+	return patch;
+}
+
+function normalizeBatchUpdatePatch(value: unknown): { type?: number; status?: number; remark?: string | null } {
+	if (!isRecord(value)) {
+		throw new CustomerMutationError(400, 'patch 不能为空');
+	}
+
+	const allowedKeys = new Set(['type', 'status', 'remark']);
+	const keys = Object.keys(value);
+	const unknownKey = keys.find((key) => !allowedKeys.has(key));
+
+	if (unknownKey) {
+		throw new CustomerMutationError(400, `不允许更新字段：${unknownKey}`);
+	}
+
+	if (keys.length === 0) {
+		throw new CustomerMutationError(400, 'patch 不能为空');
+	}
+
+	const patch: { type?: number; status?: number; remark?: string | null } = {};
+
+	if ('type' in value) {
+		patch.type = normalizeCustomerType(value.type);
+	}
+
+	if ('status' in value) {
+		patch.status = normalizeCustomerStatus(value.status);
+	}
+
+	if ('remark' in value) {
+		patch.remark = normalizeOptionalNullableString(value.remark);
+	}
+
+	return patch;
+}
+
+function normalizeCustomerType(value: unknown): number {
+	if (value !== 0 && value !== 1) {
+		throw new CustomerMutationError(400, 'type 只能是 0 或 1');
+	}
+
+	return value;
+}
+
+function normalizeCustomerStatus(value: unknown): number {
+	if (!Number.isInteger(value) || typeof value !== 'number' || value < 0 || value > 4) {
+		throw new CustomerMutationError(400, 'status 只能是 0、1、2、3、4');
+	}
+
+	return value;
+}
+
+function normalizeOptionalNullableString(value: unknown): string | null {
+	if (value === null) {
+		return null;
+	}
+
+	if (typeof value !== 'string') {
+		throw new CustomerMutationError(400, '字符串字段不合法');
+	}
+
+	return value.trim();
+}
+
+function normalizeDeleteReason(body: DeleteCustomerRequestBody | null): string | null {
+	if (!body || body.reason === undefined) {
+		return null;
+	}
+
+	return normalizeOptionalNullableString(body.reason);
 }

@@ -193,7 +193,9 @@ CUSTOMERS_JSON=$(curl -s "$BASE_URL/api/customers?batchId=$BATCH_ID&page=0&pages
 echo "$CUSTOMERS_JSON" -s | jq
 
 CUSTOMER_ID=$(echo "$CUSTOMERS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['list'][0]['id'])")
+SECOND_CUSTOMER_ID=$(echo "$CUSTOMERS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['list'][1]['id'] if len(data['list']) > 1 else data['list'][0]['id'])")
 echo "CUSTOMER_ID=$CUSTOMER_ID"
+echo "SECOND_CUSTOMER_ID=$SECOND_CUSTOMER_ID"
 ```
 
 查询未分配客户：
@@ -212,7 +214,92 @@ curl -s "$BASE_URL/api/customers?phone-like=$PHONE_SUFFIX&page=0&pagesize=20" \
   -s | jq
 ```
 
-## 9. 分配客户给员工
+## 9. 客户详情、编辑、批量更新与作废
+
+客户详情：
+
+```bash
+curl -s "$BASE_URL/api/customers/$CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+编辑客户资料：
+
+```bash
+curl -s -X PATCH "$BASE_URL/api/customers/$CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"name\":\"curl 客户A\",\"company\":\"curl 公司A\",\"type\":1,\"status\":0,\"remark\":\"curl 单条修正\"}" \
+  -s | jq
+```
+
+未知字段校验，预期 `400`：
+
+```bash
+curl -i -s -X PATCH "$BASE_URL/api/customers/$CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"phone\":\"13900000000\"}"
+```
+
+批量更新客户状态、类型、备注：
+
+```bash
+curl -s -X POST "$BASE_URL/api/customers/batch-update" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerIds\":[$CUSTOMER_ID],\"patch\":{\"type\":1,\"status\":0,\"remark\":\"curl 批量标记\"}}" \
+  -s | jq
+```
+
+普通员工访问客户维护接口，预期 `403`。如果此时还没有 `SALES_ACCESS_TOKEN`，可以先跳过，执行员工登录步骤后再回头验证：
+
+```bash
+curl -i -s "$BASE_URL/api/customers/$CUSTOMER_ID" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+
+curl -i -s -X POST "$BASE_URL/api/customers/batch-update" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerIds\":[$CUSTOMER_ID],\"patch\":{\"status\":1}}"
+```
+
+作废第二个客户，避免影响后续通话上报测试：
+
+```bash
+curl -s -X DELETE "$BASE_URL/api/customers/$SECOND_CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"reason\":\"curl 测试作废\"}" \
+  -s | jq
+```
+
+作废后详情返回 `404`：
+
+```bash
+curl -i -s "$BASE_URL/api/customers/$SECOND_CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+```
+
+作废后列表默认查不到：
+
+```bash
+curl -s "$BASE_URL/api/customers?id=$SECOND_CUSTOMER_ID&page=0&pagesize=10" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+作废后不能分配，预期 `400`：
+
+```bash
+curl -i -s -X POST "$BASE_URL/api/customers/assign" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerIds\":[$SECOND_CUSTOMER_ID],\"targetUserId\":$SALES_ID,\"reason\":\"作废后分配测试\"}"
+```
+
+## 10. 分配客户给员工
 
 ```bash
 curl -s -X POST "$BASE_URL/api/customers/assign" \
@@ -250,7 +337,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
   -s | jq
 ```
 
-## 10. 员工登录并查询我的客户
+## 11. 员工登录并查询我的客户
 
 ```bash
 SALES_LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
@@ -269,7 +356,16 @@ curl -s "$BASE_URL/api/my-customers?page=0&pagesize=20&sort=-id" \
   -s | jq
 ```
 
-## 11. 上报通话结果
+作废客户不能通话上报，预期 `404`：
+
+```bash
+curl -i -s -X POST "$BASE_URL/api/calls/report" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerId\":$SECOND_CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"作废后上报测试\"}"
+```
+
+## 12. 上报通话结果
 
 ```bash
 curl -s -X POST "$BASE_URL/api/calls/report" \
@@ -287,7 +383,7 @@ curl -s "$BASE_URL/api/my-summary" \
   -s | jq
 ```
 
-## 12. 审计与明细查询
+## 13. 审计与明细查询
 
 分配审计日志：
 
@@ -340,7 +436,7 @@ curl -i -s "$BASE_URL/api/call-logs?sort=-passwordHash" \
   -H "authorization: Bearer $ACCESS_TOKEN"
 ```
 
-## 13. Dashboard 管理端统计
+## 14. Dashboard 管理端统计
 
 管理端首页核心指标。`DASHBOARD_DATE` 可改成任意 `YYYY-MM-DD` 日期；默认使用今天的北京时间日期：
 
@@ -374,7 +470,7 @@ curl -i -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN"
 ```
 
-## 14. 修改密码接口
+## 15. 修改密码接口
 
 下面只是验证参数和鉴权链路。执行后员工密码会被改成 `password` 对应的同一个 hash，行为等价于不变。
 
@@ -386,7 +482,7 @@ curl -s -X POST "$BASE_URL/api/auth/change-password" \
   -s | jq
 ```
 
-## 15. 权限与安全校验
+## 16. 权限与安全校验
 
 普通员工不能访问全量客户列表，预期 `403`：
 
@@ -411,7 +507,7 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\"}"
 ```
 
-## 16. 禁用用户与 Token 校验
+## 17. 禁用用户与 Token 校验
 
 禁用刚创建的员工：
 
@@ -471,7 +567,7 @@ curl -i -s -X POST "$BASE_URL/api/auth/refresh" \
   -d "{\"refreshToken\":\"$SALES_REFRESH_TOKEN\"}"
 ```
 
-## 17. 退出登录
+## 18. 退出登录
 
 管理员退出登录：
 

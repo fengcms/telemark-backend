@@ -1077,6 +1077,294 @@ describe("Hello World worker", () => {
 		const sortBody = await defaultSortResponse.json<{ list: Array<{ id: number }> }>();
 		expect(sortBody.list.map((item) => item.id)).toEqual([newLog.id, oldLog.id]);
 	});
+
+	it("serves customer detail only to admins and managers without leaking user secrets", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("customer_detail_admin", 1);
+		const manager = await createTestUser("customer_detail_manager", 2);
+		const employee = await createTestUser("customer_detail_employee", 3);
+		const disabledManager = await createTestUser("customer_detail_disabled", 2);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const disabledToken = await tokenFor(disabledManager);
+		const ownedCustomer = await createCustomer(admin.id, employee.id);
+		const publicCustomer = await createCustomer(admin.id, null);
+		const deletedCustomer = await createCustomer(admin.id, employee.id);
+
+		await setUserStatus(disabledManager.id, 0);
+		await softDeleteCustomer(deletedCustomer.id, admin.id);
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/customers/${ownedCustomer.id}`);
+		const disabledResponse = await SELF.fetch(`https://example.com/api/customers/${ownedCustomer.id}`, {
+			headers: { authorization: `Bearer ${disabledToken}` },
+		});
+		const employeeResponse = await SELF.fetch(`https://example.com/api/customers/${ownedCustomer.id}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/customers/${ownedCustomer.id}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(`https://example.com/api/customers/${publicCustomer.id}`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const invalidIdResponse = await SELF.fetch("https://example.com/api/customers/not-a-number", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const missingResponse = await SELF.fetch("https://example.com/api/customers/999999999", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const deletedResponse = await SELF.fetch(`https://example.com/api/customers/${deletedCustomer.id}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(disabledResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidIdResponse.status).toBe(400);
+		expect(missingResponse.status).toBe(404);
+		expect(deletedResponse.status).toBe(404);
+
+		const adminBody = await adminResponse.json<{
+			id: number;
+			ownerId: number;
+			ownerName: string | null;
+			batchName: string | null;
+			passwordHash?: string;
+			salt?: string;
+		}>();
+		expect(adminBody).toMatchObject({
+			id: ownedCustomer.id,
+			ownerId: employee.id,
+			ownerName: employee.username,
+		});
+		expect(adminBody.batchName).toMatch(/^测试批次_/);
+		expect(adminBody.passwordHash).toBeUndefined();
+		expect(adminBody.salt).toBeUndefined();
+
+		const managerBody = await managerResponse.json<{ ownerId: number | null; ownerName: string | null; batchName: string | null }>();
+		expect(managerBody.ownerId).toBeNull();
+		expect(managerBody.ownerName).toBeNull();
+		expect(managerBody.batchName).toMatch(/^测试批次_/);
+	});
+
+	it("updates customer fields with strict field and enum validation", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("customer_update_admin", 1);
+		const manager = await createTestUser("customer_update_manager", 2);
+		const employee = await createTestUser("customer_update_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const customer = await createCustomer(admin.id, employee.id);
+		const managerCustomer = await createCustomer(admin.id, manager.id);
+		const deletedCustomer = await createCustomer(admin.id, employee.id);
+		const before = await getCustomerUpdatedAt(customer.id);
+
+		await softDeleteCustomer(deletedCustomer.id, admin.id);
+
+		const employeeResponse = await patchCustomer(employeeToken, customer.id, { name: "越权编辑" });
+		const invalidTypeResponse = await patchCustomer(adminToken, customer.id, { type: 2 });
+		const invalidStatusResponse = await patchCustomer(adminToken, customer.id, { status: 9 });
+		const emptyBodyResponse = await patchCustomer(adminToken, customer.id, {});
+		const unknownFieldResponse = await patchCustomer(adminToken, customer.id, { deleteReason: "不允许" });
+		const phoneResponse = await patchCustomer(adminToken, customer.id, { phone: "13900000000" });
+		const ownerResponse = await patchCustomer(adminToken, customer.id, { ownerId: manager.id });
+		const batchResponse = await patchCustomer(adminToken, customer.id, { batchId: 1 });
+		const deletedResponse = await patchCustomer(adminToken, deletedCustomer.id, { remark: "已作废不能编辑" });
+		const managerResponse = await patchCustomer(managerToken, managerCustomer.id, {
+			name: "客户A",
+			company: "测试公司A",
+			type: 1,
+			status: 1,
+			remark: "后台人工修正",
+		});
+		const adminResponse = await patchCustomer(adminToken, customer.id, { remark: null });
+
+		expect(employeeResponse.status).toBe(403);
+		expect(invalidTypeResponse.status).toBe(400);
+		expect(invalidStatusResponse.status).toBe(400);
+		expect(emptyBodyResponse.status).toBe(400);
+		expect(unknownFieldResponse.status).toBe(400);
+		expect(phoneResponse.status).toBe(400);
+		expect(ownerResponse.status).toBe(400);
+		expect(batchResponse.status).toBe(400);
+		expect(deletedResponse.status).toBe(404);
+		expect(managerResponse.status).toBe(200);
+		expect(adminResponse.status).toBe(200);
+
+		const managerBody = await managerResponse.json<{ name: string; company: string; type: number; status: number; remark: string }>();
+		expect(managerBody).toMatchObject({
+			name: "客户A",
+			company: "测试公司A",
+			type: 1,
+			status: 1,
+			remark: "后台人工修正",
+		});
+		const after = await getCustomerUpdatedAt(customer.id);
+		expect(after).not.toBe(before);
+	});
+
+	it("soft deletes customers and keeps historical logs while hiding deleted customers", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("customer_delete_admin", 1);
+		const manager = await createTestUser("customer_delete_manager", 2);
+		const employee = await createTestUser("customer_delete_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const adminDeletedCustomer = await createCustomer(admin.id, employee.id);
+		const managerDeletedCustomer = await createCustomer(admin.id, manager.id);
+
+		await insertAssignmentLog({
+			customerId: adminDeletedCustomer.id,
+			fromUserId: null,
+			toUserId: employee.id,
+			operatorId: admin.id,
+			action: 1,
+			remark: "删除前分配",
+			createdAt: "2026-06-13T10:00:00.000Z",
+		});
+		await insertCallLog(adminDeletedCustomer.id, employee.id, "2026-06-13T11:00:00.000Z");
+
+		const employeeResponse = await SELF.fetch(`https://example.com/api/customers/${adminDeletedCustomer.id}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const invalidIdResponse = await SELF.fetch("https://example.com/api/customers/not-a-number", {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const missingResponse = await SELF.fetch("https://example.com/api/customers/999999999", {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(`https://example.com/api/customers/${managerDeletedCustomer.id}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/customers/${adminDeletedCustomer.id}`, {
+			method: "DELETE",
+			headers: {
+				authorization: `Bearer ${adminToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ reason: "测试号码，作废" }),
+		});
+		const duplicateResponse = await SELF.fetch(`https://example.com/api/customers/${adminDeletedCustomer.id}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(employeeResponse.status).toBe(403);
+		expect(invalidIdResponse.status).toBe(400);
+		expect(missingResponse.status).toBe(404);
+		expect(managerResponse.status).toBe(200);
+		expect(adminResponse.status).toBe(200);
+		expect(await adminResponse.json()).toEqual({ ok: true, id: adminDeletedCustomer.id });
+		expect(await duplicateResponse.json()).toEqual({ ok: true, id: adminDeletedCustomer.id });
+
+		const listResponse = await SELF.fetch(`https://example.com/api/customers?id=${adminDeletedCustomer.id}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const myCustomersResponse = await SELF.fetch(`https://example.com/api/my-customers?id=${adminDeletedCustomer.id}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const detailResponse = await SELF.fetch(`https://example.com/api/customers/${adminDeletedCustomer.id}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const assignResponse = await SELF.fetch("https://example.com/api/customers/assign", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${adminToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				customerIds: [adminDeletedCustomer.id],
+				targetUserId: employee.id,
+				reason: "作废后分配",
+			}),
+		});
+		const callResponse = await SELF.fetch("https://example.com/api/calls/report", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${employeeToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				customerId: adminDeletedCustomer.id,
+				duration: 30,
+				callResult: 1,
+				callRemark: "作废后上报",
+			}),
+		});
+		const logCounts = await env.DB.prepare(
+			"SELECT (SELECT count(*) FROM assignment_logs WHERE customer_id = ?) AS assignment_count, (SELECT count(*) FROM call_logs WHERE customer_id = ?) AS call_count",
+		)
+			.bind(adminDeletedCustomer.id, adminDeletedCustomer.id)
+			.first<{ assignment_count: number; call_count: number }>();
+
+		expect((await listResponse.json<{ total: number }>()).total).toBe(0);
+		expect((await myCustomersResponse.json<{ total: number }>()).total).toBe(0);
+		expect(detailResponse.status).toBe(404);
+		expect(assignResponse.status).toBe(400);
+		expect(callResponse.status).toBe(404);
+		expect(logCounts).toEqual({ assignment_count: 1, call_count: 1 });
+	});
+
+	it("batch updates customers with strict limits and excludes deleted customers", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("customer_batch_update_admin", 1);
+		const manager = await createTestUser("customer_batch_update_manager", 2);
+		const employee = await createTestUser("customer_batch_update_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const firstCustomer = await createCustomer(admin.id, employee.id);
+		const secondCustomer = await createCustomer(admin.id, manager.id);
+		const deletedCustomer = await createCustomer(admin.id, employee.id);
+		const tooManyIds = Array.from({ length: 501 }, (_, index) => index + 1);
+
+		await softDeleteCustomer(deletedCustomer.id, admin.id);
+
+		expect((await batchUpdateCustomers(employeeToken, { customerIds: [firstCustomer.id], patch: { status: 1 } })).status).toBe(403);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [], patch: { status: 1 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: tooManyIds, patch: { status: 1 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id, -1], patch: { status: 1 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: {} })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { ownerId: manager.id } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { name: "不允许批量改名" } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { type: 2 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { status: 9 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [999999999], patch: { status: 1 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [deletedCustomer.id], patch: { status: 1 } })).status).toBe(400);
+
+		const managerResponse = await batchUpdateCustomers(managerToken, {
+			customerIds: [firstCustomer.id, secondCustomer.id],
+			patch: {
+				type: 1,
+				status: 1,
+				remark: "批量标记意向",
+			},
+		});
+
+		expect(managerResponse.status).toBe(200);
+		expect(await managerResponse.json()).toEqual({ updatedCount: 2 });
+
+		const rows = await env.DB.prepare("SELECT id, type, status, remark FROM customers WHERE id IN (?, ?) ORDER BY id ASC")
+			.bind(firstCustomer.id, secondCustomer.id)
+			.all<{ id: number; type: number; status: number; remark: string }>();
+		expect(rows.results).toEqual([
+			{ id: firstCustomer.id, type: 1, status: 1, remark: "批量标记意向" },
+			{ id: secondCustomer.id, type: 1, status: 1, remark: "批量标记意向" },
+		]);
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -1089,17 +1377,32 @@ async function ensureCrmTables(): Promise<void> {
 	await runSqlStatements([
 		"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, salt TEXT NOT NULL, real_name TEXT NOT NULL, phone TEXT, role INTEGER NOT NULL DEFAULT 3, status INTEGER NOT NULL DEFAULT 1, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)",
 		"CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, source TEXT, cost INTEGER NOT NULL DEFAULT 0, total_count INTEGER NOT NULL DEFAULT 0, creator_id INTEGER NOT NULL, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(creator_id) REFERENCES users(id))",
-		"CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT NOT NULL UNIQUE, name TEXT, company TEXT, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, remark TEXT, owner_id INTEGER, batch_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(owner_id) REFERENCES users(id), FOREIGN KEY(batch_id) REFERENCES batches(id))",
+		"CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT NOT NULL UNIQUE, name TEXT, company TEXT, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, remark TEXT, owner_id INTEGER, batch_id INTEGER NOT NULL, is_deleted INTEGER NOT NULL DEFAULT 0, deleted_at TEXT, deleted_by INTEGER, delete_reason TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(owner_id) REFERENCES users(id), FOREIGN KEY(batch_id) REFERENCES batches(id))",
 		"CREATE TABLE IF NOT EXISTS assignment_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, from_user_id INTEGER, to_user_id INTEGER, operator_id INTEGER NOT NULL, action INTEGER NOT NULL, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(from_user_id) REFERENCES users(id), FOREIGN KEY(to_user_id) REFERENCES users(id), FOREIGN KEY(operator_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS call_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, user_id INTEGER NOT NULL, call_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, duration INTEGER NOT NULL DEFAULT 0, call_result INTEGER NOT NULL, call_remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(user_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS agent_daily_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, first_call_time TEXT, last_call_time TEXT, total_calls INTEGER NOT NULL DEFAULT 0, connected_calls INTEGER NOT NULL DEFAULT 0, total_duration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))",
+		"CREATE INDEX IF NOT EXISTS idx_customers_is_deleted ON customers(is_deleted)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_daily_summaries_user_id_date ON agent_daily_summaries(user_id, date)",
 	]);
+	await ensureColumn("customers", "is_deleted", "INTEGER NOT NULL DEFAULT 0");
+	await ensureColumn("customers", "deleted_at", "TEXT");
+	await ensureColumn("customers", "deleted_by", "INTEGER");
+	await ensureColumn("customers", "delete_reason", "TEXT");
 }
 
 async function runSqlStatements(statements: string[]): Promise<void> {
 	for (const statement of statements) {
 		await env.DB.prepare(statement).run();
+	}
+}
+
+async function ensureColumn(table: string, column: string, definition: string): Promise<void> {
+	try {
+		await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+	} catch (error) {
+		if (!(error instanceof Error) || !error.message.includes("duplicate column name")) {
+			throw error;
+		}
 	}
 }
 
@@ -1229,6 +1532,48 @@ async function createBatchCustomer(
 
 async function setCustomerType(customerId: number, type: 0 | 1): Promise<void> {
 	await env.DB.prepare("UPDATE customers SET type = ? WHERE id = ?").bind(type, customerId).run();
+}
+
+async function softDeleteCustomer(customerId: number, deletedBy: number): Promise<void> {
+	await env.DB.prepare(
+		"UPDATE customers SET is_deleted = 1, deleted_at = ?, deleted_by = ?, delete_reason = ? WHERE id = ?",
+	)
+		.bind(new Date().toISOString(), deletedBy, "测试作废", customerId)
+		.run();
+}
+
+async function getCustomerUpdatedAt(customerId: number): Promise<string> {
+	const customer = await env.DB.prepare("SELECT updated_at FROM customers WHERE id = ?")
+		.bind(customerId)
+		.first<{ updated_at: string }>();
+
+	if (!customer) {
+		throw new Error("测试客户不存在");
+	}
+
+	return customer.updated_at;
+}
+
+async function patchCustomer(token: string, customerId: number, body: Record<string, unknown>): Promise<Response> {
+	return SELF.fetch(`https://example.com/api/customers/${customerId}`, {
+		method: "PATCH",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
+}
+
+async function batchUpdateCustomers(token: string, body: Record<string, unknown>): Promise<Response> {
+	return SELF.fetch("https://example.com/api/customers/batch-update", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
 }
 
 async function insertDailySummary(

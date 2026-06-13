@@ -194,6 +194,10 @@ curl -X POST http://localhost:8787/api/auth/login \
 | GET | /api/assignment-logs | 分配审计日志 | 管理员/经理 |
 | GET | /api/call-logs | 通话记录查询 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
+| GET | /api/customers/:id | 客户详情 | 管理员/经理 |
+| PATCH | /api/customers/:id | 编辑客户资料 | 管理员/经理 |
+| DELETE | /api/customers/:id | 作废客户 | 管理员/经理 |
+| POST | /api/customers/batch-update | 批量更新客户状态/类型/备注 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
 | POST | /api/customers/assign | 分配/回收线索 | 管理员/经理 |
 | GET | /api/users | 员工列表 | 管理员/经理 |
@@ -202,6 +206,8 @@ curl -X POST http://localhost:8787/api/auth/login \
 | DELETE | /api/users/:id | 禁用员工 | 管理员 |
 | POST | /api/calls/report | 回传通话结果 | 经理/员工 |
 | GET | /api/my-summary | 今日战报 | 经理/员工 |
+
+客户作废采用软删除：`customers.is_deleted = 1`，不会物理删除历史通话、分配审计或批次关联数据。已作废客户默认不出现在客户列表、我的客户、分配、通话上报和批次质量统计中。
 
 ## 认证机制
 

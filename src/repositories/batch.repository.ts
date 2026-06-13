@@ -109,7 +109,7 @@ export async function getBatchCustomerStats(db: Db, batchId: number): Promise<Ba
 			invalidCustomers: sql<number>`sum(case when ${customers.status} = 4 then 1 else 0 end)`,
 		})
 		.from(customers)
-		.where(eq(customers.batchId, batchId));
+		.where(and(eq(customers.batchId, batchId), eq(customers.isDeleted, 0)));
 	const row = rows[0];
 
 	return {

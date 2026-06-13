@@ -89,6 +89,12 @@ export const customers = sqliteTable(
 			.notNull()
 			.references(() => batches.id),
 
+		// 软删除/作废标记：1 表示客户已作废，历史通话与分配日志仍保留。
+		isDeleted: integer('is_deleted').notNull().default(0),
+		deletedAt: text('deleted_at'),
+		deletedBy: integer('deleted_by').references(() => users.id),
+		deleteReason: text('delete_reason'),
+
 		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
@@ -97,6 +103,7 @@ export const customers = sqliteTable(
 		index('idx_customers_batch_id').on(table.batchId),
 		index('idx_customers_type').on(table.type),
 		index('idx_customers_status').on(table.status),
+		index('idx_customers_is_deleted').on(table.isDeleted),
 	],
 );
 
