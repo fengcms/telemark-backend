@@ -532,6 +532,178 @@ describe("Hello World worker", () => {
 		expect(await reportCallStatus(managerToken, ownedCustomer.id)).toBe(403);
 		expect(await reportCallStatus(adminToken, ownedCustomer.id)).toBe(403);
 	});
+
+	it("serves dashboard overview only to admins and managers with correct metrics", async () => {
+		await ensureCrmTables();
+
+		const date = "2026-06-13";
+		const emptyDate = "2099-01-01";
+		const admin = await createTestUser("dashboard_overview_admin", 1);
+		const manager = await createTestUser("dashboard_overview_manager", 2);
+		const employee = await createTestUser("dashboard_overview_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const calledCustomer = await createCustomer(admin.id, employee.id);
+		const secondCalledCustomer = await createCustomer(admin.id, manager.id);
+		const intentCustomer = await createCustomer(admin.id, manager.id);
+
+		await setCustomerType(intentCustomer.id, 1);
+		await insertDailySummary(employee.id, date, {
+			totalCalls: 10,
+			connectedCalls: 5,
+			totalDuration: 100,
+			firstCallTime: "2026-06-13T01:00:00.000Z",
+			lastCallTime: "2026-06-13T02:00:00.000Z",
+		});
+		await insertDailySummary(manager.id, date, {
+			totalCalls: 0,
+			connectedCalls: 0,
+			totalDuration: 0,
+			firstCallTime: null,
+			lastCallTime: null,
+		});
+		await insertCallLog(calledCustomer.id, employee.id, "2026-06-12T16:30:00.000Z");
+		await insertCallLog(calledCustomer.id, employee.id, "2026-06-12T17:30:00.000Z");
+		await insertCallLog(secondCalledCustomer.id, manager.id, "2026-06-13T15:59:59.000Z");
+		await insertCallLog(secondCalledCustomer.id, manager.id, "2026-06-13T16:00:00.000Z");
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/dashboard/overview?date=${date}`);
+		const employeeResponse = await SELF.fetch(`https://example.com/api/dashboard/overview?date=${date}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/dashboard/overview?date=${date}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(`https://example.com/api/dashboard/overview?date=${date}`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const emptyResponse = await SELF.fetch(`https://example.com/api/dashboard/overview?date=${emptyDate}`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const invalidDateResponse = await SELF.fetch("https://example.com/api/dashboard/overview?date=2026-99-99", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(await adminResponse.json()).toMatchObject({
+			date,
+			totalCalls: 10,
+			connectedCalls: 5,
+			totalDuration: 100,
+			avgDuration: 20,
+			connectRate: 0.5,
+			activeAgents: 1,
+			newCalledCustomers: 2,
+		});
+
+		const managerBody = await managerResponse.json<{ intentCustomers: number }>();
+		expect(managerBody.intentCustomers).toBeGreaterThanOrEqual(1);
+		expect(await emptyResponse.json()).toEqual({
+			date: emptyDate,
+			totalCalls: 0,
+			connectedCalls: 0,
+			totalDuration: 0,
+			avgDuration: 0,
+			connectRate: 0,
+			activeAgents: 0,
+			intentCustomers: 0,
+			newCalledCustomers: 0,
+		});
+		expect(invalidDateResponse.status).toBe(400);
+	});
+
+	it("serves dashboard agent daily ranking with pagination and safe sorting", async () => {
+		await ensureCrmTables();
+
+		const date = "2026-06-14";
+		const admin = await createTestUser("dashboard_daily_admin", 1);
+		const manager = await createTestUser("dashboard_daily_manager", 2);
+		const employee = await createTestUser("dashboard_daily_employee", 3);
+		const highCaller = await createTestUser("dashboard_daily_high", 3);
+		const zeroConnected = await createTestUser("dashboard_daily_zero", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+
+		await insertDailySummary(highCaller.id, date, {
+			totalCalls: 20,
+			connectedCalls: 10,
+			totalDuration: 300,
+			firstCallTime: "2026-06-14T01:00:00.000Z",
+			lastCallTime: "2026-06-14T03:00:00.000Z",
+		});
+		await insertDailySummary(zeroConnected.id, date, {
+			totalCalls: 5,
+			connectedCalls: 0,
+			totalDuration: 0,
+			firstCallTime: null,
+			lastCallTime: null,
+		});
+		await insertDailySummary(manager.id, date, {
+			totalCalls: 0,
+			connectedCalls: 0,
+			totalDuration: 0,
+			firstCallTime: null,
+			lastCallTime: null,
+		});
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-daily?date=${date}`);
+		const employeeResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-daily?date=${date}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-daily?date=${date}&page=0&pagesize=2`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(
+			`https://example.com/api/dashboard/agent-daily?date=${date}&userId=${zeroConnected.id}&sort=-totalCalls`,
+			{
+				headers: { authorization: `Bearer ${managerToken}` },
+			},
+		);
+		const invalidSortResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-daily?date=${date}&sort=-passwordHash`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidSortResponse.status).toBe(400);
+
+		const adminBody = await adminResponse.json<{
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{ userId: number; totalCalls: number; avgDuration: number; connectRate: number; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(adminBody.page).toBe(0);
+		expect(adminBody.pageSize).toBe(2);
+		expect(adminBody.total).toBe(3);
+		expect(adminBody.list).toHaveLength(2);
+		expect(adminBody.list[0].userId).toBe(highCaller.id);
+		expect(adminBody.list[0]).toMatchObject({
+			totalCalls: 20,
+			avgDuration: 30,
+			connectRate: 0.5,
+		});
+		expect(adminBody.list.every((item) => item.passwordHash === undefined && item.salt === undefined)).toBe(true);
+
+		const managerBody = await managerResponse.json<{
+			list: Array<{ userId: number; avgDuration: number; connectRate: number; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(managerBody.list).toHaveLength(1);
+		expect(managerBody.list[0]).toMatchObject({
+			userId: zeroConnected.id,
+			avgDuration: 0,
+			connectRate: 0,
+		});
+		expect(managerBody.list[0].passwordHash).toBeUndefined();
+		expect(managerBody.list[0].salt).toBeUndefined();
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -641,6 +813,36 @@ async function createCustomer(creatorId: number, ownerId: number | null): Promis
 		id: customer.id,
 		phone,
 	};
+}
+
+async function setCustomerType(customerId: number, type: 0 | 1): Promise<void> {
+	await env.DB.prepare("UPDATE customers SET type = ? WHERE id = ?").bind(type, customerId).run();
+}
+
+async function insertDailySummary(
+	userId: number,
+	date: string,
+	input: {
+		totalCalls: number;
+		connectedCalls: number;
+		totalDuration: number;
+		firstCallTime: string | null;
+		lastCallTime: string | null;
+	},
+): Promise<void> {
+	await env.DB.prepare(
+		"INSERT INTO agent_daily_summaries (user_id, date, first_call_time, last_call_time, total_calls, connected_calls, total_duration) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	)
+		.bind(userId, date, input.firstCallTime, input.lastCallTime, input.totalCalls, input.connectedCalls, input.totalDuration)
+		.run();
+}
+
+async function insertCallLog(customerId: number, userId: number, callTime: string): Promise<void> {
+	await env.DB.prepare(
+		"INSERT INTO call_logs (customer_id, user_id, call_time, duration, call_result, call_remark) VALUES (?, ?, ?, 30, 1, ?)",
+	)
+		.bind(customerId, userId, callTime, "dashboard 测试通话")
+		.run();
 }
 
 async function expectAssign(token: string, customerId: number, targetUserId: number | null, expectedStatus: number): Promise<void> {

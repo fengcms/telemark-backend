@@ -23,25 +23,31 @@ src/
 │   ├── auth.controller.ts
 │   ├── call.controller.ts
 │   ├── customer.controller.ts
+│   ├── dashboard.controller.ts
 │   └── user.controller.ts
 ├── db/                数据库定义
 │   ├── index.ts       Drizzle 实例创建
 │   └── schema.ts      表结构 & 关系定义
 ├── lib/               基础设施
 │   └── KVManager.ts   KV 封装
+├── middleware/         通用中间件
+│   ├── auth.middleware.ts
+│   └── cors.middleware.ts
 ├── repositories/      数据访问层，SQL 查询封装
 │   ├── call.repository.ts
-│   └── customer.repository.ts
+│   ├── customer.repository.ts
+│   └── dashboard.repository.ts
 ├── routes/            路由注册
 │   ├── auth.routes.ts
-│   ├── auth.ts        认证核心（JWT、密码哈希、Token 刷新）
 │   ├── call.routes.ts
 │   ├── customer.routes.ts
+│   ├── dashboard.routes.ts
 │   └── user.routes.ts
 ├── services/          业务逻辑层
 │   ├── auth.service.ts
 │   ├── call.service.ts
 │   ├── customer.service.ts
+│   ├── dashboard.service.ts
 │   └── user.service.ts
 ├── utils/             工具函数
 │   ├── crypto.ts      SHA-256、HMAC-SHA256、JWT 签发
@@ -168,6 +174,8 @@ curl -X POST http://localhost:8787/api/auth/login \
 | POST | /api/auth/refresh | 刷新 Token | 公开 |
 | POST | /api/auth/logout | 退出登录 | 已登录用户 |
 | POST | /api/auth/change-password | 修改密码 | 已登录用户 |
+| GET | /api/dashboard/overview | 管理端首页核心统计 | 管理员/经理 |
+| GET | /api/dashboard/agent-daily | 员工日报排行榜 | 管理员/经理 |
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |

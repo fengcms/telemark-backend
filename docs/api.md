@@ -230,6 +230,157 @@ curl -X POST http://localhost:8787/api/auth/change-password \
   -d '{"oldPassword":"<SHA-256-of-old-plaintext>","newPassword":"<SHA-256-of-new-plaintext>"}'
 ```
 
+## Dashboard 接口
+
+### GET /api/dashboard/overview
+
+管理后台首页核心指标。仅 `role=1` 或 `role=2` 可调用。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `date` | 否 | 统计日期，格式 `YYYY-MM-DD`；不传时使用 `Asia/Shanghai` 当前业务日期 |
+
+响应：
+
+```json
+{
+  "date": "2026-06-13",
+  "totalCalls": 1200,
+  "connectedCalls": 430,
+  "totalDuration": 38600,
+  "avgDuration": 89.77,
+  "connectRate": 0.3583,
+  "activeAgents": 12,
+  "intentCustomers": 56,
+  "newCalledCustomers": 980
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `totalCalls` | 当天所有员工总拨打数，来自 `agent_daily_summaries.total_calls` |
+| `connectedCalls` | 当天所有员工接通数，来自 `agent_daily_summaries.connected_calls` |
+| `totalDuration` | 当天所有员工总通话时长，单位秒 |
+| `avgDuration` | 平均接通通话时长，`totalDuration / connectedCalls`；无接通时为 `0` |
+| `connectRate` | 接通率，`connectedCalls / totalCalls`；无拨打时为 `0` |
+| `activeAgents` | 当天 `total_calls > 0` 的员工数量 |
+| `intentCustomers` | 第一版为累计意向客户数，即 `customers.type = 1` 的总数；当指定日期没有日报数据时按空数据规则返回 `0` |
+| `newCalledCustomers` | 当天被拨打过的去重客户数，按 `call_logs.call_time` 的 `Asia/Shanghai` 日期区间统计 |
+
+空数据响应：
+
+```json
+{
+  "date": "2026-06-13",
+  "totalCalls": 0,
+  "connectedCalls": 0,
+  "totalDuration": 0,
+  "avgDuration": 0,
+  "connectRate": 0,
+  "activeAgents": 0,
+  "intentCustomers": 0,
+  "newCalledCustomers": 0
+}
+```
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `date` 格式错误 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/dashboard/overview?date=2026-06-13' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+### GET /api/dashboard/agent-daily
+
+员工日报排行榜/工作量列表。仅 `role=1` 或 `role=2` 可调用。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `date` | 否 | 统计日期，格式 `YYYY-MM-DD`；不传时使用 `Asia/Shanghai` 当前业务日期 |
+| `page` | 否 | 从 `0` 开始，默认 `0` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100` |
+| `sort` | 否 | 默认 `-totalCalls`；`sort=totalCalls` 为升序，`sort=-totalCalls` 为降序 |
+| `userId` | 否 | 按员工 ID 精确筛选 |
+| `username-like` | 否 | 按用户名模糊筛选 |
+| `realName-like` | 否 | 按真实姓名模糊筛选 |
+
+排序白名单：
+
+```txt
+userId
+totalCalls
+connectedCalls
+totalDuration
+avgDuration
+connectRate
+firstCallTime
+lastCallTime
+```
+
+注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序，独立于通用 query-builder 的历史语义。
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 20,
+  "total": 2,
+  "list": [
+    {
+      "userId": 3,
+      "username": "sales01",
+      "realName": "销售一号",
+      "role": 3,
+      "totalCalls": 88,
+      "connectedCalls": 30,
+      "totalDuration": 3600,
+      "avgDuration": 120,
+      "connectRate": 0.3409,
+      "firstCallTime": "2026-06-13T01:15:30.000Z",
+      "lastCallTime": "2026-06-13T09:42:18.000Z"
+    }
+  ]
+}
+```
+
+业务规则：
+
+- 从 `agent_daily_summaries` 按日期查询，并关联 `users` 返回 `username`、`realName`、`role`
+- 不返回 `password_hash`
+- 不返回 `salt`
+- 默认只返回有日报记录的用户
+- 第一版保留已禁用用户的历史日报数据，便于管理端查看历史统计
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `date`、`userId` 或 `sort` 参数不合法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/dashboard/agent-daily?date=2026-06-13&page=0&pagesize=20&sort=-totalCalls' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
 ## 线索与批次接口
 
 ### POST /api/batches/import

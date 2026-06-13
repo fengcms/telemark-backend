@@ -255,7 +255,41 @@ curl -s "$BASE_URL/api/my-summary" \
   | python3 -m json.tool
 ```
 
-## 11. 修改密码接口
+## 11. Dashboard 管理端统计
+
+管理端首页核心指标。`DASHBOARD_DATE` 可改成任意 `YYYY-MM-DD` 日期；默认使用今天的北京时间日期：
+
+```bash
+DASHBOARD_DATE=$(TZ=Asia/Shanghai date +%F)
+
+curl -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  | python3 -m json.tool
+```
+
+员工日报排行榜：
+
+```bash
+curl -s "$BASE_URL/api/dashboard/agent-daily?date=$DASHBOARD_DATE&page=0&pagesize=20&sort=-totalCalls" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  | python3 -m json.tool
+```
+
+非法排序字段校验，预期 `400`：
+
+```bash
+curl -i -s "$BASE_URL/api/dashboard/agent-daily?date=$DASHBOARD_DATE&sort=-passwordHash" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+```
+
+普通员工访问 Dashboard，预期 `403`：
+
+```bash
+curl -i -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+```
+
+## 12. 修改密码接口
 
 下面只是验证参数和鉴权链路。执行后员工密码会被改成 `password` 对应的同一个 hash，行为等价于不变。
 
@@ -267,7 +301,7 @@ curl -s -X POST "$BASE_URL/api/auth/change-password" \
   | python3 -m json.tool
 ```
 
-## 12. 权限与安全校验
+## 13. 权限与安全校验
 
 普通员工不能访问全量客户列表，预期 `403`：
 
@@ -292,7 +326,7 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\"}"
 ```
 
-## 13. 禁用用户与 Token 校验
+## 14. 禁用用户与 Token 校验
 
 禁用刚创建的员工：
 
@@ -352,7 +386,7 @@ curl -i -s -X POST "$BASE_URL/api/auth/refresh" \
   -d "{\"refreshToken\":\"$SALES_REFRESH_TOKEN\"}"
 ```
 
-## 14. 退出登录
+## 15. 退出登录
 
 管理员退出登录：
 
