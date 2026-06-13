@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { createDb } from '@/db';
 import { corsMiddleware } from '@/middleware/cors.middleware';
 import { authRoutes } from '@/routes/auth.routes';
+import { batchRoutes } from '@/routes/batch.routes';
 import { callRoutes } from '@/routes/call.routes';
 import { customerRoutes } from '@/routes/customer.routes';
 import { dashboardRoutes } from '@/routes/dashboard.routes';
@@ -24,6 +25,7 @@ app.get('/health', async (c) => {
 });
 
 app.route('/api/auth', authRoutes);
+app.route('/api', batchRoutes);
 app.route('/api', customerRoutes);
 app.route('/api', callRoutes);
 app.route('/api', userRoutes);

@@ -152,7 +152,39 @@ BATCH_ID=$(echo "$BATCH_JSON" | python3 -c "import sys,json; print(json.load(sys
 echo "BATCH_ID=$BATCH_ID"
 ```
 
-## 7. 查询客户列表
+## 7. 查询批次列表与批次质量分析
+
+批次列表：
+
+```bash
+curl -s "$BASE_URL/api/batches?page=0&pagesize=10&sort=-id&name-like=$RUN_ID&source-like=curl-test" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  | python3 -m json.tool
+```
+
+批次列表非法排序字段，预期 `400`：
+
+```bash
+curl -i -s "$BASE_URL/api/batches?sort=-passwordHash" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+```
+
+批次质量分析：
+
+```bash
+curl -s "$BASE_URL/api/batches/$BATCH_ID/summary" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  | python3 -m json.tool
+```
+
+普通员工访问批次接口，预期 `403`。如果此时还没有 `SALES_ACCESS_TOKEN`，可以先跳过，执行员工登录步骤后再回头验证：
+
+```bash
+curl -i -s "$BASE_URL/api/batches?page=0&pagesize=10" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+```
+
+## 8. 查询客户列表
 
 ```bash
 CUSTOMERS_JSON=$(curl -s "$BASE_URL/api/customers?batchId=$BATCH_ID&page=0&pagesize=20&sort=-id" \
@@ -180,7 +212,7 @@ curl -s "$BASE_URL/api/customers?phone-like=$PHONE_SUFFIX&page=0&pagesize=20" \
   | python3 -m json.tool
 ```
 
-## 8. 分配客户给员工
+## 9. 分配客户给员工
 
 ```bash
 curl -s -X POST "$BASE_URL/api/customers/assign" \
@@ -218,7 +250,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
   | python3 -m json.tool
 ```
 
-## 9. 员工登录并查询我的客户
+## 10. 员工登录并查询我的客户
 
 ```bash
 SALES_LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
@@ -237,7 +269,7 @@ curl -s "$BASE_URL/api/my-customers?page=0&pagesize=20&sort=-id" \
   | python3 -m json.tool
 ```
 
-## 10. 上报通话结果
+## 11. 上报通话结果
 
 ```bash
 curl -s -X POST "$BASE_URL/api/calls/report" \
@@ -255,7 +287,7 @@ curl -s "$BASE_URL/api/my-summary" \
   | python3 -m json.tool
 ```
 
-## 11. Dashboard 管理端统计
+## 12. Dashboard 管理端统计
 
 管理端首页核心指标。`DASHBOARD_DATE` 可改成任意 `YYYY-MM-DD` 日期；默认使用今天的北京时间日期：
 
@@ -289,7 +321,7 @@ curl -i -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN"
 ```
 
-## 12. 修改密码接口
+## 13. 修改密码接口
 
 下面只是验证参数和鉴权链路。执行后员工密码会被改成 `password` 对应的同一个 hash，行为等价于不变。
 
@@ -301,7 +333,7 @@ curl -s -X POST "$BASE_URL/api/auth/change-password" \
   | python3 -m json.tool
 ```
 
-## 13. 权限与安全校验
+## 14. 权限与安全校验
 
 普通员工不能访问全量客户列表，预期 `403`：
 
@@ -326,7 +358,7 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\"}"
 ```
 
-## 14. 禁用用户与 Token 校验
+## 15. 禁用用户与 Token 校验
 
 禁用刚创建的员工：
 
@@ -386,7 +418,7 @@ curl -i -s -X POST "$BASE_URL/api/auth/refresh" \
   -d "{\"refreshToken\":\"$SALES_REFRESH_TOKEN\"}"
 ```
 
-## 15. 退出登录
+## 16. 退出登录
 
 管理员退出登录：
 

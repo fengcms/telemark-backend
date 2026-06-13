@@ -21,6 +21,7 @@
 src/
 ├── controllers/       请求处理层，参数校验与响应
 │   ├── auth.controller.ts
+│   ├── batch.controller.ts
 │   ├── call.controller.ts
 │   ├── customer.controller.ts
 │   ├── dashboard.controller.ts
@@ -34,17 +35,20 @@ src/
 │   ├── auth.middleware.ts
 │   └── cors.middleware.ts
 ├── repositories/      数据访问层，SQL 查询封装
+│   ├── batch.repository.ts
 │   ├── call.repository.ts
 │   ├── customer.repository.ts
 │   └── dashboard.repository.ts
 ├── routes/            路由注册
 │   ├── auth.routes.ts
+│   ├── batch.routes.ts
 │   ├── call.routes.ts
 │   ├── customer.routes.ts
 │   ├── dashboard.routes.ts
 │   └── user.routes.ts
 ├── services/          业务逻辑层
 │   ├── auth.service.ts
+│   ├── batch.service.ts
 │   ├── call.service.ts
 │   ├── customer.service.ts
 │   ├── dashboard.service.ts
@@ -177,6 +181,8 @@ curl -X POST http://localhost:8787/api/auth/login \
 | GET | /api/dashboard/overview | 管理端首页核心统计 | 管理员/经理 |
 | GET | /api/dashboard/agent-daily | 员工日报排行榜 | 管理员/经理 |
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
+| GET | /api/batches | 批次列表 | 管理员/经理 |
+| GET | /api/batches/:id/summary | 批次质量分析 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
 | POST | /api/customers/assign | 分配/回收线索 | 管理员/经理 |

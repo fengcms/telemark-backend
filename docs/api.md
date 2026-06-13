@@ -426,6 +426,160 @@ curl -X POST http://localhost:8787/api/batches/import \
   -d '{"name":"2026-06 测试批次","source":"本地测试","cost":1000,"customers":[{"phone":"13900020001","name":"客户A","company":"测试公司A"},{"phone":"13900020002","name":"客户B","company":"测试公司B"},{"phone":"13900020001","name":"重复客户","company":"重复公司"}]}'
 ```
 
+### GET /api/batches
+
+历史导入批次列表。仅 `role=1` 或 `role=2` 可调用。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `page` | 否 | 从 `0` 开始，默认 `0` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100` |
+| `sort` | 否 | 默认 `-id`；`sort=id` 为升序，`sort=-id` 为降序 |
+| `name-like` | 否 | 批次名称模糊查询 |
+| `source-like` | 否 | 数据来源模糊查询 |
+| `creatorId` | 否 | 创建人 ID 精确查询 |
+
+排序字段白名单：
+
+```txt
+id
+name
+source
+cost
+creatorId
+createdAt
+updatedAt
+```
+
+注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序，独立于通用 query-builder 的历史语义。
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 10,
+  "total": 1,
+  "list": [
+    {
+      "id": 1,
+      "name": "2026六月渠道A线索",
+      "source": "渠道A",
+      "cost": 1000,
+      "creatorId": 1,
+      "creatorName": "超级管理员",
+      "createdAt": "2026-06-13T00:00:00.000Z",
+      "updatedAt": "2026-06-13T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+业务规则：
+
+- 从 `batches` 查询，并关联 `users` 返回 `creatorName`
+- 不返回 `password_hash`
+- 不返回 `salt`
+- 创建人已禁用时，批次历史仍继续显示
+- 没有数据时返回空 `list`
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `creatorId` 或 `sort` 参数不合法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/batches?page=0&pagesize=10&sort=-id&name-like=六月&source-like=渠道A' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+### GET /api/batches/:id/summary
+
+单个批次的线索质量、接通情况和成本效果分析。仅 `role=1` 或 `role=2` 可调用。
+
+响应：
+
+```json
+{
+  "batchId": 1,
+  "name": "2026六月渠道A线索",
+  "source": "渠道A",
+  "cost": 1000,
+  "totalCustomers": 5000,
+  "assignedCustomers": 3000,
+  "unassignedCustomers": 2000,
+  "calledCustomers": 2800,
+  "uncalledCustomers": 2200,
+  "connectedCustomers": 900,
+  "intentCustomers": 120,
+  "invalidCustomers": 300,
+  "connectRate": 0.3214,
+  "intentRate": 0.0428,
+  "costPerIntent": 8.33
+}
+```
+
+计算规则：
+
+| 字段 | 说明 |
+|------|------|
+| `totalCustomers` | 该批次客户总数 |
+| `assignedCustomers` | `owner_id IS NOT NULL` |
+| `unassignedCustomers` | `owner_id IS NULL` |
+| `calledCustomers` | `status != 0` |
+| `uncalledCustomers` | `status = 0` |
+| `connectedCustomers` | `status = 1` |
+| `intentCustomers` | `type = 1` |
+| `invalidCustomers` | `status = 4` |
+| `connectRate` | `connectedCustomers / calledCustomers`，除数为 `0` 时返回 `0` |
+| `intentRate` | `intentCustomers / calledCustomers`，除数为 `0` 时返回 `0` |
+| `costPerIntent` | `cost / intentCustomers`，除数为 `0` 时返回 `0` |
+
+空批次响应：
+
+```json
+{
+  "batchId": 1,
+  "name": "2026六月渠道A线索",
+  "source": "渠道A",
+  "cost": 1000,
+  "totalCustomers": 0,
+  "assignedCustomers": 0,
+  "unassignedCustomers": 0,
+  "calledCustomers": 0,
+  "uncalledCustomers": 0,
+  "connectedCustomers": 0,
+  "intentCustomers": 0,
+  "invalidCustomers": 0,
+  "connectRate": 0,
+  "intentRate": 0,
+  "costPerIntent": 0
+}
+```
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | 批次 ID 非法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+| 404 | 批次不存在 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/batches/1/summary' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
 ### GET /api/customers
 
 客户列表查询。仅 `role=1` 或 `role=2` 可调用。

@@ -704,6 +704,169 @@ describe("Hello World worker", () => {
 		expect(managerBody.list[0].passwordHash).toBeUndefined();
 		expect(managerBody.list[0].salt).toBeUndefined();
 	});
+
+	it("lists batches with filters, pagination, and safe sorting", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("batch_list_admin", 1);
+		const manager = await createTestUser("batch_list_manager", 2);
+		const employee = await createTestUser("batch_list_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const uniqueName = `六月渠道_${crypto.randomUUID()}`;
+		const source = `渠道A_${crypto.randomUUID()}`;
+		const olderBatch = await createBatchRecord({
+			name: `${uniqueName}_旧`,
+			source,
+			cost: 100,
+			creatorId: admin.id,
+		});
+		const newerBatch = await createBatchRecord({
+			name: `${uniqueName}_新`,
+			source,
+			cost: 200,
+			creatorId: admin.id,
+		});
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/batches?source-like=${source}`);
+		const employeeResponse = await SELF.fetch(`https://example.com/api/batches?source-like=${source}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/batches?source-like=${source}&page=0&pagesize=1`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(`https://example.com/api/batches?name-like=${uniqueName}&creatorId=${admin.id}`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const invalidSortResponse = await SELF.fetch(`https://example.com/api/batches?sort=-passwordHash`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidSortResponse.status).toBe(400);
+
+		const adminBody = await adminResponse.json<{
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{ id: number; source: string; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(adminBody.page).toBe(0);
+		expect(adminBody.pageSize).toBe(1);
+		expect(adminBody.total).toBe(2);
+		expect(adminBody.list).toHaveLength(1);
+		expect(adminBody.list[0].id).toBe(newerBatch.id);
+		expect(adminBody.list[0].passwordHash).toBeUndefined();
+		expect(adminBody.list[0].salt).toBeUndefined();
+
+		const managerBody = await managerResponse.json<{
+			total: number;
+			list: Array<{ id: number; creatorId: number; source: string; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(managerBody.total).toBe(2);
+		expect(managerBody.list.map((item) => item.id)).toEqual([newerBatch.id, olderBatch.id]);
+		expect(managerBody.list.every((item) => item.creatorId === admin.id && item.source === source)).toBe(true);
+		expect(managerBody.list.every((item) => item.passwordHash === undefined && item.salt === undefined)).toBe(true);
+	});
+
+	it("returns batch summary metrics and handles empty or missing batches", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("batch_summary_admin", 1);
+		const manager = await createTestUser("batch_summary_manager", 2);
+		const employee = await createTestUser("batch_summary_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const emptyBatch = await createBatchRecord({
+			name: `空批次_${crypto.randomUUID()}`,
+			source: "empty",
+			cost: 1000,
+			creatorId: admin.id,
+		});
+		const batch = await createBatchRecord({
+			name: `质量批次_${crypto.randomUUID()}`,
+			source: "quality",
+			cost: 1000,
+			creatorId: admin.id,
+		});
+
+		await createBatchCustomer(batch.id, employee.id, 0, 0);
+		await createBatchCustomer(batch.id, null, 0, 0);
+		await createBatchCustomer(batch.id, employee.id, 1, 1);
+		await createBatchCustomer(batch.id, employee.id, 2, 0);
+		await createBatchCustomer(batch.id, null, 4, 0);
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/batches/${batch.id}/summary`);
+		const employeeResponse = await SELF.fetch(`https://example.com/api/batches/${batch.id}/summary`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/batches/${batch.id}/summary`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(`https://example.com/api/batches/${batch.id}/summary`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const invalidIdResponse = await SELF.fetch("https://example.com/api/batches/not-a-number/summary", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const missingResponse = await SELF.fetch("https://example.com/api/batches/999999999/summary", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const emptyResponse = await SELF.fetch(`https://example.com/api/batches/${emptyBatch.id}/summary`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidIdResponse.status).toBe(400);
+		expect(missingResponse.status).toBe(404);
+
+		expect(await adminResponse.json()).toMatchObject({
+			batchId: batch.id,
+			name: batch.name,
+			source: batch.source,
+			cost: 1000,
+			totalCustomers: 5,
+			assignedCustomers: 3,
+			unassignedCustomers: 2,
+			calledCustomers: 3,
+			uncalledCustomers: 2,
+			connectedCustomers: 1,
+			intentCustomers: 1,
+			invalidCustomers: 1,
+			connectRate: 0.3333,
+			intentRate: 0.3333,
+			costPerIntent: 1000,
+		});
+		expect(await managerResponse.json()).toMatchObject({
+			batchId: batch.id,
+			totalCustomers: 5,
+		});
+		expect(await emptyResponse.json()).toEqual({
+			batchId: emptyBatch.id,
+			name: emptyBatch.name,
+			source: emptyBatch.source,
+			cost: emptyBatch.cost,
+			totalCustomers: 0,
+			assignedCustomers: 0,
+			unassignedCustomers: 0,
+			calledCustomers: 0,
+			uncalledCustomers: 0,
+			connectedCustomers: 0,
+			intentCustomers: 0,
+			invalidCustomers: 0,
+			connectRate: 0,
+			intentRate: 0,
+			costPerIntent: 0,
+		});
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -813,6 +976,45 @@ async function createCustomer(creatorId: number, ownerId: number | null): Promis
 		id: customer.id,
 		phone,
 	};
+}
+
+async function createBatchRecord(input: {
+	name: string;
+	source: string | null;
+	cost: number;
+	creatorId: number;
+}): Promise<{ id: number; name: string; source: string | null; cost: number }> {
+	const batch = await env.DB.prepare(
+		"INSERT INTO batches (name, source, cost, total_count, creator_id) VALUES (?, ?, ?, 0, ?) RETURNING id, name, source, cost",
+	)
+		.bind(input.name, input.source, input.cost, input.creatorId)
+		.first<{ id: number; name: string; source: string | null; cost: number }>();
+
+	if (!batch) {
+		throw new Error("创建测试批次失败");
+	}
+
+	return batch;
+}
+
+async function createBatchCustomer(
+	batchId: number,
+	ownerId: number | null,
+	status: number,
+	type: number,
+): Promise<{ id: number }> {
+	const phone = `137${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+	const customer = await env.DB.prepare(
+		"INSERT INTO customers (phone, name, company, type, status, owner_id, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+	)
+		.bind(phone, "批次统计客户", "批次统计公司", type, status, ownerId, batchId)
+		.first<{ id: number }>();
+
+	if (!customer) {
+		throw new Error("创建批次测试客户失败");
+	}
+
+	return customer;
 }
 
 async function setCustomerType(customerId: number, type: 0 | 1): Promise<void> {
