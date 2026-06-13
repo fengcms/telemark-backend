@@ -20,9 +20,11 @@
 ```
 src/
 ├── controllers/       请求处理层，参数校验与响应
+│   ├── assignment-log.controller.ts
 │   ├── auth.controller.ts
 │   ├── batch.controller.ts
 │   ├── call.controller.ts
+│   ├── call-log.controller.ts
 │   ├── customer.controller.ts
 │   ├── dashboard.controller.ts
 │   └── user.controller.ts
@@ -35,21 +37,27 @@ src/
 │   ├── auth.middleware.ts
 │   └── cors.middleware.ts
 ├── repositories/      数据访问层，SQL 查询封装
+│   ├── assignment-log.repository.ts
 │   ├── batch.repository.ts
 │   ├── call.repository.ts
+│   ├── call-log.repository.ts
 │   ├── customer.repository.ts
 │   └── dashboard.repository.ts
 ├── routes/            路由注册
+│   ├── assignment-log.routes.ts
 │   ├── auth.routes.ts
 │   ├── batch.routes.ts
 │   ├── call.routes.ts
+│   ├── call-log.routes.ts
 │   ├── customer.routes.ts
 │   ├── dashboard.routes.ts
 │   └── user.routes.ts
 ├── services/          业务逻辑层
+│   ├── assignment-log.service.ts
 │   ├── auth.service.ts
 │   ├── batch.service.ts
 │   ├── call.service.ts
+│   ├── call-log.service.ts
 │   ├── customer.service.ts
 │   ├── dashboard.service.ts
 │   └── user.service.ts
@@ -183,6 +191,8 @@ curl -X POST http://localhost:8787/api/auth/login \
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
 | GET | /api/batches | 批次列表 | 管理员/经理 |
 | GET | /api/batches/:id/summary | 批次质量分析 | 管理员/经理 |
+| GET | /api/assignment-logs | 分配审计日志 | 管理员/经理 |
+| GET | /api/call-logs | 通话记录查询 | 管理员/经理 |
 | GET | /api/customers | 客户列表 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
 | POST | /api/customers/assign | 分配/回收线索 | 管理员/经理 |

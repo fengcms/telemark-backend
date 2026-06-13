@@ -962,6 +962,174 @@ curl 'http://localhost:8787/api/my-summary' \
   -H "Authorization: Bearer <employeeOrManagerAccessToken>"
 ```
 
+## 审计与明细查询接口
+
+### GET /api/assignment-logs
+
+查询客户线索分配、回收、转移的审计记录。仅 `role=1` 或 `role=2` 可调用。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `page` | 否 | 从 `0` 开始，默认 `0` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100` |
+| `sort` | 否 | 默认 `-id`；`sort=id` 为升序，`sort=-id` 为降序 |
+| `customerId` | 否 | 按客户 ID 筛选 |
+| `operatorId` | 否 | 按操作人 ID 筛选 |
+| `fromUserId` | 否 | 按原归属用户 ID 筛选；传 `null` 查询从公海分配的记录 |
+| `toUserId` | 否 | 按新归属用户 ID 筛选；传 `null` 查询回收到公海的记录 |
+| `action` | 否 | 支持 `assign`、`reassign`、`recycle`，也兼容数字 `1`、`2`、`3` |
+| `startDate` | 否 | 起始日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
+| `endDate` | 否 | 结束日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
+
+暂不支持：`customerPhone-like`、`customerName-like`、`operatorName-like`、`toUserName-like`。
+
+排序字段白名单：
+
+```txt
+id
+customerId
+fromUserId
+toUserId
+operatorId
+action
+createdAt
+```
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 20,
+  "total": 1,
+  "list": [
+    {
+      "id": 1,
+      "customerId": 100,
+      "customerPhone": "13900020001",
+      "customerName": "客户A",
+      "fromUserId": null,
+      "fromUserName": null,
+      "toUserId": 3,
+      "toUserName": "销售一号",
+      "operatorId": 1,
+      "operatorName": "超级管理员",
+      "action": "assign",
+      "reason": "测试分配",
+      "createdAt": "2026-06-13T02:00:00.000Z"
+    }
+  ]
+}
+```
+
+业务规则：
+
+- `customerPhone`、`customerName` 来自 `customers`
+- `fromUserName`、`toUserName`、`operatorName` 来自 `users`
+- `fromUserId` 或 `toUserId` 为 `null` 时，对应姓名字段返回 `null`
+- 用户已禁用时，历史日志仍继续显示
+- 不返回 `password_hash`
+- 不返回 `salt`
+- 当前数字 action 映射：`1=assign`、`2=reassign`、`3=recycle`
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | 查询参数、日期或排序字段不合法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/assignment-logs?page=0&pagesize=20&sort=-id&customerId=100&operatorId=1&toUserId=3' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+### GET /api/call-logs
+
+查询员工通话明细。仅 `role=1` 或 `role=2` 可调用。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `page` | 否 | 从 `0` 开始，默认 `0` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100` |
+| `sort` | 否 | 默认 `-id`；`sort=id` 为升序，`sort=-id` 为降序 |
+| `userId` | 否 | 按拨打员工 ID 筛选 |
+| `customerId` | 否 | 按客户 ID 筛选 |
+| `callResult` | 否 | 通话结果，兼容当前枚举 `0` 到 `4` |
+| `startDate` | 否 | 起始日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
+| `endDate` | 否 | 结束日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
+
+暂不支持：`phone-like`、`customerName-like`、`username-like`、`realName-like`。
+
+排序字段白名单：
+
+```txt
+id
+customerId
+userId
+duration
+callResult
+createdAt
+```
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 20,
+  "total": 1,
+  "list": [
+    {
+      "id": 1,
+      "customerId": 100,
+      "customerName": "客户A",
+      "customerPhone": "13900020001",
+      "userId": 3,
+      "username": "sales01",
+      "userRealName": "销售一号",
+      "duration": 66,
+      "callResult": 1,
+      "callRemark": "客户已接听，有明确意向",
+      "startedAt": null,
+      "endedAt": null,
+      "createdAt": "2026-06-13T02:30:06.000Z"
+    }
+  ]
+}
+```
+
+业务规则：
+
+- `customerName`、`customerPhone` 来自 `customers`
+- `username`、`userRealName` 来自 `users`
+- 不返回 `password_hash`
+- 不返回 `salt`
+- 当前 `call_logs` 尚无 `started_at` / `ended_at` 字段，本阶段固定返回 `startedAt: null`、`endedAt: null`
+- 时间范围按 `call_logs.created_at` 日期筛选
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | 查询参数、日期、`callResult` 或排序字段不合法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/call-logs?page=0&pagesize=20&sort=-id&userId=3&callResult=1&startDate=2026-06-01&endDate=2026-06-13' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
 ## 本地联调建议顺序
 
 1. 启动本地 Worker：`pnpm exec wrangler dev`

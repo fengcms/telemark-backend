@@ -867,6 +867,216 @@ describe("Hello World worker", () => {
 			costPerIntent: 0,
 		});
 	});
+
+	it("lists assignment logs with filters, pagination, date range, and safe sorting", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("assignment_log_admin", 1);
+		const manager = await createTestUser("assignment_log_manager", 2);
+		const employee = await createTestUser("assignment_log_employee", 3);
+		const disabledManager = await createTestUser("assignment_log_disabled", 2);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const disabledToken = await tokenFor(disabledManager);
+		const firstCustomer = await createCustomer(admin.id, null);
+		const secondCustomer = await createCustomer(admin.id, manager.id);
+
+		await setUserStatus(disabledManager.id, 0);
+		const oldLog = await insertAssignmentLog({
+			customerId: firstCustomer.id,
+			fromUserId: null,
+			toUserId: employee.id,
+			operatorId: admin.id,
+			action: 1,
+			remark: "首次分配",
+			createdAt: "2026-06-10T10:00:00.000Z",
+		});
+		const newLog = await insertAssignmentLog({
+			customerId: secondCustomer.id,
+			fromUserId: manager.id,
+			toUserId: employee.id,
+			operatorId: admin.id,
+			action: 2,
+			remark: "转移分配",
+			createdAt: "2026-06-11T10:00:00.000Z",
+		});
+		await insertAssignmentLog({
+			customerId: secondCustomer.id,
+			fromUserId: employee.id,
+			toUserId: null,
+			operatorId: manager.id,
+			action: 3,
+			remark: "回收公海",
+			createdAt: "2026-06-12T10:00:00.000Z",
+		});
+
+		const unauthenticatedResponse = await SELF.fetch("https://example.com/api/assignment-logs");
+		const disabledResponse = await SELF.fetch("https://example.com/api/assignment-logs", {
+			headers: { authorization: `Bearer ${disabledToken}` },
+		});
+		const employeeResponse = await SELF.fetch("https://example.com/api/assignment-logs", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(
+			`https://example.com/api/assignment-logs?page=0&pagesize=2&customerId=${secondCustomer.id}&operatorId=${admin.id}&toUserId=${employee.id}&fromUserId=${manager.id}&action=reassign&startDate=2026-06-11&endDate=2026-06-11`,
+			{
+				headers: { authorization: `Bearer ${adminToken}` },
+			},
+		);
+		const managerResponse = await SELF.fetch(
+			`https://example.com/api/assignment-logs?customerId=${firstCustomer.id}&fromUserId=null&action=assign`,
+			{
+				headers: { authorization: `Bearer ${managerToken}` },
+			},
+		);
+		const defaultSortResponse = await SELF.fetch("https://example.com/api/assignment-logs?startDate=2026-06-10&endDate=2026-06-11", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const invalidSortResponse = await SELF.fetch("https://example.com/api/assignment-logs?sort=-passwordHash", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(disabledResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidSortResponse.status).toBe(400);
+
+		const adminBody = await adminResponse.json<{
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{ id: number; action: string; fromUserId: number | null; toUserId: number | null; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(adminBody.page).toBe(0);
+		expect(adminBody.pageSize).toBe(2);
+		expect(adminBody.total).toBe(1);
+		expect(adminBody.list[0]).toMatchObject({
+			id: newLog.id,
+			action: "reassign",
+			fromUserId: manager.id,
+			toUserId: employee.id,
+		});
+		expect(adminBody.list[0].passwordHash).toBeUndefined();
+		expect(adminBody.list[0].salt).toBeUndefined();
+
+		const managerBody = await managerResponse.json<{
+			total: number;
+			list: Array<{ id: number; action: string; fromUserId: number | null; fromUserName: string | null; passwordHash?: string; salt?: string }>;
+		}>();
+		expect(managerBody.total).toBe(1);
+		expect(managerBody.list[0]).toMatchObject({
+			id: oldLog.id,
+			action: "assign",
+			fromUserId: null,
+			fromUserName: null,
+		});
+		expect(managerBody.list[0].passwordHash).toBeUndefined();
+		expect(managerBody.list[0].salt).toBeUndefined();
+
+		const sortBody = await defaultSortResponse.json<{ list: Array<{ id: number }> }>();
+		expect(sortBody.list.map((item) => item.id)).toEqual([newLog.id, oldLog.id]);
+	});
+
+	it("lists call logs with filters, pagination, date range, and null started/ended times", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("call_log_admin", 1);
+		const manager = await createTestUser("call_log_manager", 2);
+		const employee = await createTestUser("call_log_employee", 3);
+		const disabledManager = await createTestUser("call_log_disabled", 2);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const disabledToken = await tokenFor(disabledManager);
+		const firstCustomer = await createCustomer(admin.id, employee.id);
+		const secondCustomer = await createCustomer(admin.id, manager.id);
+
+		await setUserStatus(disabledManager.id, 0);
+		const oldLog = await insertCallLog(firstCustomer.id, employee.id, "2026-06-13T10:00:00.000Z", {
+			createdAt: "2026-06-13T10:00:00.000Z",
+			duration: 66,
+			callResult: 1,
+			callRemark: "已接听",
+		});
+		const newLog = await insertCallLog(secondCustomer.id, manager.id, "2026-06-14T10:00:00.000Z", {
+			createdAt: "2026-06-14T10:00:00.000Z",
+			duration: 12,
+			callResult: 2,
+			callRemark: "无人接听",
+		});
+
+		const unauthenticatedResponse = await SELF.fetch("https://example.com/api/call-logs");
+		const disabledResponse = await SELF.fetch("https://example.com/api/call-logs", {
+			headers: { authorization: `Bearer ${disabledToken}` },
+		});
+		const employeeResponse = await SELF.fetch("https://example.com/api/call-logs", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(
+			`https://example.com/api/call-logs?page=0&pagesize=2&userId=${employee.id}&customerId=${firstCustomer.id}&callResult=1&startDate=2026-06-13&endDate=2026-06-13`,
+			{
+				headers: { authorization: `Bearer ${adminToken}` },
+			},
+		);
+		const managerResponse = await SELF.fetch(`https://example.com/api/call-logs?userId=${manager.id}&callResult=2`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const defaultSortResponse = await SELF.fetch("https://example.com/api/call-logs?startDate=2026-06-13&endDate=2026-06-14", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const invalidSortResponse = await SELF.fetch("https://example.com/api/call-logs?sort=-passwordHash", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(disabledResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(403);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidSortResponse.status).toBe(400);
+
+		const adminBody = await adminResponse.json<{
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{
+				id: number;
+				customerId: number;
+				userId: number;
+				callResult: number;
+				startedAt: null;
+				endedAt: null;
+				passwordHash?: string;
+				salt?: string;
+			}>;
+		}>();
+		expect(adminBody.page).toBe(0);
+		expect(adminBody.pageSize).toBe(2);
+		expect(adminBody.total).toBe(1);
+		expect(adminBody.list[0]).toMatchObject({
+			id: oldLog.id,
+			customerId: firstCustomer.id,
+			userId: employee.id,
+			callResult: 1,
+			startedAt: null,
+			endedAt: null,
+		});
+		expect(adminBody.list[0].passwordHash).toBeUndefined();
+		expect(adminBody.list[0].salt).toBeUndefined();
+
+		const managerBody = await managerResponse.json<{ total: number; list: Array<{ id: number; callResult: number }> }>();
+		expect(managerBody.total).toBe(1);
+		expect(managerBody.list[0]).toMatchObject({
+			id: newLog.id,
+			callResult: 2,
+		});
+
+		const sortBody = await defaultSortResponse.json<{ list: Array<{ id: number }> }>();
+		expect(sortBody.list.map((item) => item.id)).toEqual([newLog.id, oldLog.id]);
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -1039,12 +1249,58 @@ async function insertDailySummary(
 		.run();
 }
 
-async function insertCallLog(customerId: number, userId: number, callTime: string): Promise<void> {
-	await env.DB.prepare(
-		"INSERT INTO call_logs (customer_id, user_id, call_time, duration, call_result, call_remark) VALUES (?, ?, ?, 30, 1, ?)",
+async function insertAssignmentLog(input: {
+	customerId: number;
+	fromUserId: number | null;
+	toUserId: number | null;
+	operatorId: number;
+	action: number;
+	remark: string | null;
+	createdAt: string;
+}): Promise<{ id: number }> {
+	const result = await env.DB.prepare(
+		"INSERT INTO assignment_logs (customer_id, from_user_id, to_user_id, operator_id, action, remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
 	)
-		.bind(customerId, userId, callTime, "dashboard 测试通话")
-		.run();
+		.bind(input.customerId, input.fromUserId, input.toUserId, input.operatorId, input.action, input.remark, input.createdAt)
+		.first<{ id: number }>();
+
+	if (!result) {
+		throw new Error("创建测试分配日志失败");
+	}
+
+	return result;
+}
+
+async function insertCallLog(
+	customerId: number,
+	userId: number,
+	callTime: string,
+	options?: {
+		createdAt?: string;
+		duration?: number;
+		callResult?: number;
+		callRemark?: string;
+	},
+): Promise<{ id: number }> {
+	const result = await env.DB.prepare(
+		"INSERT INTO call_logs (customer_id, user_id, call_time, duration, call_result, call_remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+	)
+		.bind(
+			customerId,
+			userId,
+			callTime,
+			options?.duration ?? 30,
+			options?.callResult ?? 1,
+			options?.callRemark ?? "dashboard 测试通话",
+			options?.createdAt ?? callTime,
+		)
+		.first<{ id: number }>();
+
+	if (!result) {
+		throw new Error("创建测试通话日志失败");
+	}
+
+	return result;
 }
 
 async function expectAssign(token: string, customerId: number, targetUserId: number | null, expectedStatus: number): Promise<void> {

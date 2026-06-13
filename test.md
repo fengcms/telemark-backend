@@ -32,7 +32,7 @@ pnpm dev
 ## 1. 健康检查
 
 ```bash
-curl -s "$BASE_URL/health" | python3 -m json.tool
+curl -s "$BASE_URL/health" -s | jq
 ```
 
 预期：
@@ -52,7 +52,7 @@ curl -s "$BASE_URL/health" | python3 -m json.tool
 curl -s -X POST "$BASE_URL/api/auth/init-admin" \
   -H "content-type: application/json" \
   -d "{\"username\":\"admin\",\"password\":\"$PASSWORD_HASH\",\"realName\":\"超级管理员\",\"phone\":\"13800000000\",\"remark\":\"本地初始化管理员\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 3. 登录并保存 Token
@@ -62,7 +62,7 @@ LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
   -H "content-type: application/json" \
   -d "{\"username\":\"admin\",\"password\":\"$PASSWORD_HASH\"}")
 
-echo "$LOGIN_JSON" | python3 -m json.tool
+echo "$LOGIN_JSON" -s | jq
 
 ACCESS_TOKEN=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 REFRESH_TOKEN=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['refreshToken'])")
@@ -77,7 +77,7 @@ echo "REFRESH_TOKEN=$REFRESH_TOKEN"
 curl -s -X POST "$BASE_URL/api/auth/refresh" \
   -H "content-type: application/json" \
   -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 5. 创建用户
@@ -91,7 +91,7 @@ curl -s -X POST "$BASE_URL/api/users" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"username\":\"$MANAGER_USERNAME\",\"password\":\"$PASSWORD_HASH\",\"realName\":\"测试经理\",\"phone\":\"13910010001\",\"role\":2,\"remark\":\"curl 测试经理\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 创建普通员工：
@@ -103,7 +103,7 @@ curl -s -X POST "$BASE_URL/api/users" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"username\":\"$SALES_USERNAME\",\"password\":\"$PASSWORD_HASH\",\"realName\":\"测试销售\",\"phone\":\"13930030001\",\"role\":3,\"remark\":\"curl 测试销售\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 查询用户并保存用户 ID：
@@ -112,7 +112,7 @@ curl -s -X POST "$BASE_URL/api/users" \
 USERS_JSON=$(curl -s "$BASE_URL/api/users?page=0&pagesize=50&sort=-id" \
   -H "authorization: Bearer $ACCESS_TOKEN")
 
-echo "$USERS_JSON" | python3 -m json.tool
+echo "$USERS_JSON" -s | jq
 
 MANAGER_ID=$(echo "$USERS_JSON" | python3 -c "import sys,json,os; data=json.load(sys.stdin); username=os.environ['MANAGER_USERNAME']; print(next(item['id'] for item in data['list'] if item['username']==username))")
 SALES_ID=$(echo "$USERS_JSON" | python3 -c "import sys,json,os; data=json.load(sys.stdin); username=os.environ['SALES_USERNAME']; print(next(item['id'] for item in data['list'] if item['username']==username))")
@@ -126,7 +126,7 @@ echo "SALES_ID=$SALES_ID"
 ```bash
 curl -s "$BASE_URL/api/users?username-like=$SALES_USERNAME&page=0&pagesize=10" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 6. 导入客户批次
@@ -146,7 +146,7 @@ BATCH_JSON=$(curl -s -X POST "$BASE_URL/api/batches/import" \
     ]
   }")
 
-echo "$BATCH_JSON" | python3 -m json.tool
+echo "$BATCH_JSON" -s | jq
 
 BATCH_ID=$(echo "$BATCH_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['batchId'])")
 echo "BATCH_ID=$BATCH_ID"
@@ -159,7 +159,7 @@ echo "BATCH_ID=$BATCH_ID"
 ```bash
 curl -s "$BASE_URL/api/batches?page=0&pagesize=10&sort=-id&name-like=$RUN_ID&source-like=curl-test" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 批次列表非法排序字段，预期 `400`：
@@ -174,7 +174,7 @@ curl -i -s "$BASE_URL/api/batches?sort=-passwordHash" \
 ```bash
 curl -s "$BASE_URL/api/batches/$BATCH_ID/summary" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 普通员工访问批次接口，预期 `403`。如果此时还没有 `SALES_ACCESS_TOKEN`，可以先跳过，执行员工登录步骤后再回头验证：
@@ -190,7 +190,7 @@ curl -i -s "$BASE_URL/api/batches?page=0&pagesize=10" \
 CUSTOMERS_JSON=$(curl -s "$BASE_URL/api/customers?batchId=$BATCH_ID&page=0&pagesize=20&sort=-id" \
   -H "authorization: Bearer $ACCESS_TOKEN")
 
-echo "$CUSTOMERS_JSON" | python3 -m json.tool
+echo "$CUSTOMERS_JSON" -s | jq
 
 CUSTOMER_ID=$(echo "$CUSTOMERS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['list'][0]['id'])")
 echo "CUSTOMER_ID=$CUSTOMER_ID"
@@ -201,7 +201,7 @@ echo "CUSTOMER_ID=$CUSTOMER_ID"
 ```bash
 curl -s "$BASE_URL/api/customers?is_assigned=0&page=0&pagesize=20&sort=-id" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 手机号模糊查询：
@@ -209,7 +209,7 @@ curl -s "$BASE_URL/api/customers?is_assigned=0&page=0&pagesize=20&sort=-id" \
 ```bash
 curl -s "$BASE_URL/api/customers?phone-like=$PHONE_SUFFIX&page=0&pagesize=20" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 9. 分配客户给员工
@@ -219,7 +219,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"customerIds\":[$CUSTOMER_ID],\"targetUserId\":$SALES_ID,\"reason\":\"curl 测试分配\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 查询已分配客户：
@@ -227,7 +227,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
 ```bash
 curl -s "$BASE_URL/api/customers?is_assigned=1&page=0&pagesize=20&sort=-id" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 回收到公海：
@@ -237,7 +237,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"customerIds\":[$CUSTOMER_ID],\"targetUserId\":null,\"reason\":\"curl 测试回收公海\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 再次分配给员工，供通话上报测试使用：
@@ -247,7 +247,7 @@ curl -s -X POST "$BASE_URL/api/customers/assign" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"customerIds\":[$CUSTOMER_ID],\"targetUserId\":$SALES_ID,\"reason\":\"curl 测试重新分配\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 10. 员工登录并查询我的客户
@@ -257,7 +257,7 @@ SALES_LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
   -H "content-type: application/json" \
   -d "{\"username\":\"$SALES_USERNAME\",\"password\":\"$PASSWORD_HASH\"}")
 
-echo "$SALES_LOGIN_JSON" | python3 -m json.tool
+echo "$SALES_LOGIN_JSON" -s | jq
 
 SALES_ACCESS_TOKEN=$(echo "$SALES_LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 SALES_REFRESH_TOKEN=$(echo "$SALES_LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['refreshToken'])")
@@ -266,7 +266,7 @@ SALES_REFRESH_TOKEN=$(echo "$SALES_LOGIN_JSON" | python3 -c "import sys,json; pr
 ```bash
 curl -s "$BASE_URL/api/my-customers?page=0&pagesize=20&sort=-id" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 ## 11. 上报通话结果
@@ -276,7 +276,7 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":66,\"callResult\":1,\"callRemark\":\"curl 测试：客户已接听\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 查询今日战报：
@@ -284,10 +284,63 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
 ```bash
 curl -s "$BASE_URL/api/my-summary" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
-## 12. Dashboard 管理端统计
+## 12. 审计与明细查询
+
+分配审计日志：
+
+```bash
+curl -s "$BASE_URL/api/assignment-logs?page=0&pagesize=20&sort=-id&customerId=$CUSTOMER_ID" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+按 action 查询分配日志：
+
+```bash
+curl -s "$BASE_URL/api/assignment-logs?page=0&pagesize=20&action=assign" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+通话记录查询：
+
+```bash
+curl -s "$BASE_URL/api/call-logs?page=0&pagesize=20&sort=-id&customerId=$CUSTOMER_ID&callResult=1" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+时间范围查询通话记录：
+
+```bash
+TODAY=$(TZ=Asia/Shanghai date +%F)
+
+curl -s "$BASE_URL/api/call-logs?page=0&pagesize=20&startDate=$TODAY&endDate=$TODAY" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+普通员工访问审计/明细接口，预期 `403`：
+
+```bash
+curl -i -s "$BASE_URL/api/assignment-logs?page=0&pagesize=10" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+
+curl -i -s "$BASE_URL/api/call-logs?page=0&pagesize=10" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+```
+
+非法排序字段校验，预期 `400`：
+
+```bash
+curl -i -s "$BASE_URL/api/call-logs?sort=-passwordHash" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+```
+
+## 13. Dashboard 管理端统计
 
 管理端首页核心指标。`DASHBOARD_DATE` 可改成任意 `YYYY-MM-DD` 日期；默认使用今天的北京时间日期：
 
@@ -296,7 +349,7 @@ DASHBOARD_DATE=$(TZ=Asia/Shanghai date +%F)
 
 curl -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 员工日报排行榜：
@@ -304,7 +357,7 @@ curl -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
 ```bash
 curl -s "$BASE_URL/api/dashboard/agent-daily?date=$DASHBOARD_DATE&page=0&pagesize=20&sort=-totalCalls" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 非法排序字段校验，预期 `400`：
@@ -321,7 +374,7 @@ curl -i -s "$BASE_URL/api/dashboard/overview?date=$DASHBOARD_DATE" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN"
 ```
 
-## 13. 修改密码接口
+## 14. 修改密码接口
 
 下面只是验证参数和鉴权链路。执行后员工密码会被改成 `password` 对应的同一个 hash，行为等价于不变。
 
@@ -330,10 +383,10 @@ curl -s -X POST "$BASE_URL/api/auth/change-password" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"oldPassword\":\"$PASSWORD_HASH\",\"newPassword\":\"$PASSWORD_HASH\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
-## 14. 权限与安全校验
+## 15. 权限与安全校验
 
 普通员工不能访问全量客户列表，预期 `403`：
 
@@ -358,14 +411,14 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\"}"
 ```
 
-## 15. 禁用用户与 Token 校验
+## 16. 禁用用户与 Token 校验
 
 禁用刚创建的员工：
 
 ```bash
 curl -s -X DELETE "$BASE_URL/api/users/$SALES_ID" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 禁用用户不能重新登录，预期 `401`：
@@ -398,7 +451,7 @@ curl -s -X PATCH "$BASE_URL/api/users/$SALES_ID" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"status\":1}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 恢复后可以重新登录，预期 `200`：
@@ -407,7 +460,7 @@ curl -s -X PATCH "$BASE_URL/api/users/$SALES_ID" \
 curl -s -X POST "$BASE_URL/api/auth/login" \
   -H "content-type: application/json" \
   -d "{\"username\":\"$SALES_USERNAME\",\"password\":\"$PASSWORD_HASH\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 恢复后，刚才被删除的旧 RefreshToken 仍不能使用，预期 `403`：
@@ -418,7 +471,7 @@ curl -i -s -X POST "$BASE_URL/api/auth/refresh" \
   -d "{\"refreshToken\":\"$SALES_REFRESH_TOKEN\"}"
 ```
 
-## 16. 退出登录
+## 17. 退出登录
 
 管理员退出登录：
 
@@ -427,7 +480,7 @@ curl -s -X POST "$BASE_URL/api/auth/logout" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}" \
-  | python3 -m json.tool
+  -s | jq
 ```
 
 退出后 refresh token 不能再使用，预期 `403`：
