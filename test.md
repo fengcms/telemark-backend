@@ -383,6 +383,39 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
   -s | jq
 ```
 
+带 `clientRequestId`、`startedAt`、`endedAt` 的新通话上报请求：
+
+```bash
+CALL_REQUEST_ID="curl-call-$RUN_ID"
+CALL_STARTED_AT="$(TZ=UTC date -u +"%Y-%m-%dT%H:%M:00.000Z")"
+CALL_ENDED_AT="$(TZ=UTC date -u -v+1M +"%Y-%m-%dT%H:%M:00.000Z" 2>/dev/null || TZ=UTC date -u +"%Y-%m-%dT%H:%M:30.000Z")"
+
+curl -s -X POST "$BASE_URL/api/calls/report" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：幂等真实时间\",\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
+  -s | jq
+```
+
+重复提交相同 `clientRequestId`，预期返回 `idempotent=true`，且不会重复累加日报：
+
+```bash
+curl -s -X POST "$BASE_URL/api/calls/report" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：重复幂等请求\",\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
+  -s | jq
+```
+
+非法时间校验，预期 `400`：
+
+```bash
+curl -i -s -X POST "$BASE_URL/api/calls/report" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：时间倒挂\",\"startedAt\":\"2026-06-13T01:16:36.000Z\",\"endedAt\":\"2026-06-13T01:15:30.000Z\"}"
+```
+
 查询今日战报：
 
 ```bash

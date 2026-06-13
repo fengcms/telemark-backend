@@ -210,6 +210,10 @@ curl -X POST http://localhost:8787/api/auth/login \
 
 客户作废采用软删除：`customers.is_deleted = 1`，不会物理删除历史通话、分配审计或批次关联数据。已作废客户默认不出现在客户列表、我的客户、分配、通话上报和批次质量统计中。
 
+通话上报支持 `clientRequestId` 幂等提交，并支持 `startedAt` / `endedAt` 保存真实通话时间；重复请求不会重复插入通话记录或累加日报。
+
+列表查询统一约定：`page` 从 `0` 开始，`pagesize` 默认 `10` 且最大 `100`，响应字段为 `pageSize`；显式排序使用 `sort=字段` 升序、`sort=-字段` 降序。通用 `like` 查询会把 `%`、`_`、`\` 当作普通文本安全转义。
+
 ## 认证机制
 
 ```

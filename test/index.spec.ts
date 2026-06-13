@@ -390,6 +390,93 @@ describe("Hello World worker", () => {
 		});
 	});
 
+	it("uses common query-builder sort semantics and escapes like wildcards", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("query_builder_admin", 1);
+		const adminToken = await tokenFor(admin);
+		const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+		const percentCustomer = await createCustomer(admin.id, null);
+		const underscoreCustomer = await createCustomer(admin.id, null);
+		const plainCustomer = await createCustomer(admin.id, null);
+
+		await updateCustomerQueryFixture(percentCustomer.id, {
+			phone: `139%${suffix}`,
+			name: `客户%_${suffix}`,
+			company: `A%_${suffix}`,
+		});
+		await updateCustomerQueryFixture(underscoreCustomer.id, {
+			phone: `139_${suffix}`,
+			name: `客户_${suffix}`,
+			company: `A_${suffix}`,
+		});
+		await updateCustomerQueryFixture(plainCustomer.id, {
+			phone: `139X${suffix}`,
+			name: `客户X${suffix}`,
+			company: `AX${suffix}`,
+		});
+
+		const ascendingResponse = await SELF.fetch(
+			`https://example.com/api/customers?id-in=${percentCustomer.id},${underscoreCustomer.id},${plainCustomer.id}&sort=id&page=0&pagesize=10`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const descendingResponse = await SELF.fetch(
+			`https://example.com/api/customers?id-in=${percentCustomer.id},${underscoreCustomer.id},${plainCustomer.id}&sort=-id&page=0&pagesize=10`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const percentNameResponse = await SELF.fetch(`https://example.com/api/customers?name-like=${encodeURIComponent("%")}&page=0&pagesize=100`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const underscoreNameResponse = await SELF.fetch(`https://example.com/api/customers?name-like=${encodeURIComponent("_")}&page=0&pagesize=100`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const literalPercentNameResponse = await SELF.fetch(
+			`https://example.com/api/customers?name-like=${encodeURIComponent("客户%")}&page=0&pagesize=100`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const literalUnderscoreNameResponse = await SELF.fetch(
+			`https://example.com/api/customers?name-like=${encodeURIComponent("客户_")}&page=0&pagesize=100`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const phoneResponse = await SELF.fetch(`https://example.com/api/customers?phone-like=${encodeURIComponent("139_")}&page=0&pagesize=100`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const companyResponse = await SELF.fetch(`https://example.com/api/customers?company-like=${encodeURIComponent("A%")}&page=0&pagesize=100`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect((await ascendingResponse.json<{ list: Array<{ id: number }> }>()).list.map((item) => item.id)).toEqual([
+			percentCustomer.id,
+			underscoreCustomer.id,
+			plainCustomer.id,
+		]);
+		expect((await descendingResponse.json<{ list: Array<{ id: number }> }>()).list.map((item) => item.id)).toEqual([
+			plainCustomer.id,
+			underscoreCustomer.id,
+			percentCustomer.id,
+		]);
+
+		const percentNameIds = await customerIdsFromList(percentNameResponse);
+		const underscoreNameIds = await customerIdsFromList(underscoreNameResponse);
+		const literalPercentNameIds = await customerIdsFromList(literalPercentNameResponse);
+		const literalUnderscoreNameIds = await customerIdsFromList(literalUnderscoreNameResponse);
+		const phoneIds = await customerIdsFromList(phoneResponse);
+		const companyIds = await customerIdsFromList(companyResponse);
+
+		expect(percentNameIds).toContain(percentCustomer.id);
+		expect(percentNameIds).not.toContain(plainCustomer.id);
+		expect(underscoreNameIds).toEqual(expect.arrayContaining([percentCustomer.id, underscoreCustomer.id]));
+		expect(underscoreNameIds).not.toContain(plainCustomer.id);
+		expect(literalPercentNameIds).toContain(percentCustomer.id);
+		expect(literalPercentNameIds).not.toContain(plainCustomer.id);
+		expect(literalUnderscoreNameIds).toContain(underscoreCustomer.id);
+		expect(literalUnderscoreNameIds).not.toContain(plainCustomer.id);
+		expect(phoneIds).toContain(underscoreCustomer.id);
+		expect(phoneIds).not.toContain(plainCustomer.id);
+		expect(companyIds).toContain(percentCustomer.id);
+		expect(companyIds).not.toContain(plainCustomer.id);
+	});
+
 	it("rejects disabled users for login, old access tokens, and refresh tokens", async () => {
 		await ensureCrmTables();
 
@@ -531,6 +618,193 @@ describe("Hello World worker", () => {
 		expect(await reportCallStatus(managerToken, managerCustomer.id)).toBe(200);
 		expect(await reportCallStatus(managerToken, ownedCustomer.id)).toBe(403);
 		expect(await reportCallStatus(adminToken, ownedCustomer.id)).toBe(403);
+	});
+
+	it("reports calls idempotently and uses real call times for daily summaries", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("call_idempotent_admin", 1);
+		const employee = await createTestUser("call_idempotent_employee", 3);
+		const otherEmployee = await createTestUser("call_idempotent_other", 3);
+		const employeeToken = await tokenFor(employee);
+		const otherToken = await tokenFor(otherEmployee);
+		const firstCustomer = await createCustomer(admin.id, employee.id);
+		const secondCustomer = await createCustomer(admin.id, employee.id);
+		const thirdCustomer = await createCustomer(admin.id, employee.id);
+		const otherCustomer = await createCustomer(admin.id, otherEmployee.id);
+
+		const firstResponse = await reportCall(employeeToken, {
+			customerId: firstCustomer.id,
+			duration: 66,
+			callResult: 1,
+			callRemark: "首次幂等通话",
+			clientRequestId: "same-request-id",
+			startedAt: "2026-06-13T01:15:30.000Z",
+			endedAt: "2026-06-13T01:16:36.000Z",
+		});
+		const duplicateResponse = await reportCall(employeeToken, {
+			customerId: firstCustomer.id,
+			duration: 10,
+			callResult: 2,
+			callRemark: "重复请求不应生效",
+			clientRequestId: "same-request-id",
+			startedAt: "2026-06-13T01:15:30.000Z",
+			endedAt: "2026-06-13T01:16:36.000Z",
+		});
+		const otherUserSameRequestResponse = await reportCall(otherToken, {
+			customerId: otherCustomer.id,
+			duration: 5,
+			callResult: 1,
+			callRemark: "不同用户同 request id",
+			clientRequestId: "same-request-id",
+			startedAt: "2026-06-13T01:20:00.000Z",
+			endedAt: "2026-06-13T01:20:05.000Z",
+		});
+		const earlierResponse = await reportCall(employeeToken, {
+			customerId: secondCustomer.id,
+			duration: 30,
+			callResult: 1,
+			callRemark: "离线补传更早通话",
+			clientRequestId: "early-request-id",
+			startedAt: "2026-06-13T00:59:30.000Z",
+			endedAt: "2026-06-13T01:00:00.000Z",
+		});
+		const laterResponse = await reportCall(employeeToken, {
+			customerId: thirdCustomer.id,
+			duration: 0,
+			callResult: 2,
+			callRemark: "延迟补传更晚通话",
+			clientRequestId: "late-request-id",
+			startedAt: "2026-06-13T03:00:00.000Z",
+			endedAt: "2026-06-13T03:01:00.000Z",
+		});
+
+		expect(firstResponse.status).toBe(200);
+		expect(await firstResponse.json()).toMatchObject({
+			ok: true,
+			customerId: firstCustomer.id,
+			userId: employee.id,
+			date: "2026-06-13",
+			idempotent: false,
+		});
+		expect(duplicateResponse.status).toBe(200);
+		expect(await duplicateResponse.json()).toMatchObject({
+			ok: true,
+			customerId: firstCustomer.id,
+			userId: employee.id,
+			date: "2026-06-13",
+			idempotent: true,
+		});
+		expect(otherUserSameRequestResponse.status).toBe(200);
+		expect(await otherUserSameRequestResponse.json()).toMatchObject({
+			customerId: otherCustomer.id,
+			userId: otherEmployee.id,
+			idempotent: false,
+		});
+		expect(earlierResponse.status).toBe(200);
+		expect(laterResponse.status).toBe(200);
+
+		const firstCustomerAfterDuplicate = await env.DB.prepare("SELECT status, type, remark FROM customers WHERE id = ?")
+			.bind(firstCustomer.id)
+			.first<{ status: number; type: number; remark: string }>();
+		expect(firstCustomerAfterDuplicate).toEqual({
+			status: 1,
+			type: 1,
+			remark: "首次幂等通话",
+		});
+
+		const callLogCount = await env.DB.prepare("SELECT count(*) AS total FROM call_logs WHERE user_id = ? AND client_request_id = ?")
+			.bind(employee.id, "same-request-id")
+			.first<{ total: number }>();
+		expect(callLogCount?.total).toBe(1);
+
+		const savedCallLog = await env.DB.prepare(
+			"SELECT client_request_id, started_at, ended_at FROM call_logs WHERE user_id = ? AND client_request_id = ?",
+		)
+			.bind(employee.id, "same-request-id")
+			.first<{ client_request_id: string; started_at: string; ended_at: string }>();
+		expect(savedCallLog).toEqual({
+			client_request_id: "same-request-id",
+			started_at: "2026-06-13T01:15:30.000Z",
+			ended_at: "2026-06-13T01:16:36.000Z",
+		});
+
+		const employeeSummary = await env.DB.prepare(
+			"SELECT date, first_call_time, last_call_time, total_calls, connected_calls, total_duration FROM agent_daily_summaries WHERE user_id = ? AND date = ?",
+		)
+			.bind(employee.id, "2026-06-13")
+			.first<{
+				date: string;
+				first_call_time: string;
+				last_call_time: string;
+				total_calls: number;
+				connected_calls: number;
+				total_duration: number;
+			}>();
+		expect(employeeSummary).toEqual({
+			date: "2026-06-13",
+			first_call_time: "2026-06-13T01:00:00.000Z",
+			last_call_time: "2026-06-13T03:01:00.000Z",
+			total_calls: 3,
+			connected_calls: 2,
+			total_duration: 96,
+		});
+
+		const callLogsResponse = await SELF.fetch(`https://example.com/api/call-logs?customerId=${firstCustomer.id}`, {
+			headers: { authorization: `Bearer ${await tokenFor(admin)}` },
+		});
+		expect(callLogsResponse.status).toBe(200);
+		const callLogsBody = await callLogsResponse.json<{
+			list: Array<{ clientRequestId: string | null; startedAt: string | null; endedAt: string | null }>;
+		}>();
+		expect(callLogsBody.list[0]).toMatchObject({
+			clientRequestId: "same-request-id",
+			startedAt: "2026-06-13T01:15:30.000Z",
+			endedAt: "2026-06-13T01:16:36.000Z",
+		});
+
+		expect(
+			(
+				await reportCall(employeeToken, {
+					customerId: firstCustomer.id,
+					duration: 1,
+					callResult: 1,
+					callRemark: "非法 startedAt",
+					startedAt: "not-a-date",
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await reportCall(employeeToken, {
+					customerId: firstCustomer.id,
+					duration: 1,
+					callResult: 1,
+					callRemark: "非法 endedAt",
+					endedAt: "not-a-date",
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await reportCall(employeeToken, {
+					customerId: firstCustomer.id,
+					duration: 1,
+					callResult: 1,
+					callRemark: "时间倒挂",
+					startedAt: "2026-06-13T01:16:36.000Z",
+					endedAt: "2026-06-13T01:15:30.000Z",
+				})
+			).status,
+		).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "空幂等", clientRequestId: "" })).status).toBe(
+			400,
+		);
+		expect(
+			(await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "超长幂等", clientRequestId: "x".repeat(129) }))
+				.status,
+		).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: -1, callResult: 1, callRemark: "非法时长" })).status).toBe(400);
 	});
 
 	it("serves dashboard overview only to admins and managers with correct metrics", async () => {
@@ -1575,7 +1849,7 @@ async function ensureCrmTables(): Promise<void> {
 		"CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, source TEXT, cost INTEGER NOT NULL DEFAULT 0, total_count INTEGER NOT NULL DEFAULT 0, creator_id INTEGER NOT NULL, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(creator_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT NOT NULL UNIQUE, name TEXT, company TEXT, type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, remark TEXT, owner_id INTEGER, batch_id INTEGER NOT NULL, is_deleted INTEGER NOT NULL DEFAULT 0, deleted_at TEXT, deleted_by INTEGER, delete_reason TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(owner_id) REFERENCES users(id), FOREIGN KEY(batch_id) REFERENCES batches(id))",
 		"CREATE TABLE IF NOT EXISTS assignment_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, from_user_id INTEGER, to_user_id INTEGER, operator_id INTEGER NOT NULL, action INTEGER NOT NULL, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(from_user_id) REFERENCES users(id), FOREIGN KEY(to_user_id) REFERENCES users(id), FOREIGN KEY(operator_id) REFERENCES users(id))",
-		"CREATE TABLE IF NOT EXISTS call_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, user_id INTEGER NOT NULL, call_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, duration INTEGER NOT NULL DEFAULT 0, call_result INTEGER NOT NULL, call_remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(user_id) REFERENCES users(id))",
+		"CREATE TABLE IF NOT EXISTS call_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, user_id INTEGER NOT NULL, call_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, duration INTEGER NOT NULL DEFAULT 0, call_result INTEGER NOT NULL, call_remark TEXT, client_request_id TEXT, started_at TEXT, ended_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(user_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS agent_daily_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, first_call_time TEXT, last_call_time TEXT, total_calls INTEGER NOT NULL DEFAULT 0, connected_calls INTEGER NOT NULL DEFAULT 0, total_duration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))",
 		"CREATE INDEX IF NOT EXISTS idx_customers_is_deleted ON customers(is_deleted)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_daily_summaries_user_id_date ON agent_daily_summaries(user_id, date)",
@@ -1584,6 +1858,12 @@ async function ensureCrmTables(): Promise<void> {
 	await ensureColumn("customers", "deleted_at", "TEXT");
 	await ensureColumn("customers", "deleted_by", "INTEGER");
 	await ensureColumn("customers", "delete_reason", "TEXT");
+	await ensureColumn("call_logs", "client_request_id", "TEXT");
+	await ensureColumn("call_logs", "started_at", "TEXT");
+	await ensureColumn("call_logs", "ended_at", "TEXT");
+	await env.DB.prepare(
+		"CREATE UNIQUE INDEX IF NOT EXISTS call_logs_user_client_request_unique ON call_logs(user_id, client_request_id) WHERE client_request_id IS NOT NULL",
+	).run();
 }
 
 async function runSqlStatements(statements: string[]): Promise<void> {
@@ -1756,6 +2036,25 @@ async function updateCustomerHistoryFixture(
 		.run();
 }
 
+async function updateCustomerQueryFixture(
+	customerId: number,
+	input: {
+		phone: string;
+		name: string;
+		company: string;
+	},
+): Promise<void> {
+	await env.DB.prepare("UPDATE customers SET phone = ?, name = ?, company = ? WHERE id = ?")
+		.bind(input.phone, input.name, input.company, customerId)
+		.run();
+}
+
+async function customerIdsFromList(response: Response): Promise<number[]> {
+	const body = await response.json<{ list: Array<{ id: number }> }>();
+
+	return body.list.map((item) => item.id);
+}
+
 async function getCustomerUpdatedAt(customerId: number): Promise<string> {
 	const customer = await env.DB.prepare("SELECT updated_at FROM customers WHERE id = ?")
 		.bind(customerId)
@@ -1895,6 +2194,28 @@ async function reportCallStatus(token: string, customerId: number): Promise<numb
 	});
 
 	return response.status;
+}
+
+async function reportCall(
+	token: string,
+	body: {
+		customerId: number;
+		duration: number;
+		callResult: number;
+		callRemark: string;
+		clientRequestId?: string;
+		startedAt?: string;
+		endedAt?: string;
+	},
+): Promise<Response> {
+	return SELF.fetch("https://example.com/api/calls/report", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
 }
 
 async function sha256Hex(input: string): Promise<string> {

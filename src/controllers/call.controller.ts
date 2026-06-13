@@ -15,6 +15,9 @@ interface ReportCallRequestBody {
 	duration?: unknown;
 	callResult?: unknown;
 	callRemark?: unknown;
+	clientRequestId?: unknown;
+	startedAt?: unknown;
+	endedAt?: unknown;
 }
 
 export const callController = {
@@ -24,9 +27,24 @@ export const callController = {
 		const duration = normalizeNonNegativeInteger(body?.duration);
 		const callResult = normalizeNonNegativeInteger(body?.callResult);
 		const callRemark = normalizeString(body?.callRemark);
+		const clientRequestId = normalizeOptionalClientRequestId(body?.clientRequestId);
+		const startedAt = normalizeOptionalIsoDate(body?.startedAt);
+		const endedAt = normalizeOptionalIsoDate(body?.endedAt);
 
 		if (customerId === null || duration === null || callResult === null || callRemark === null) {
 			return c.json({ message: '参数错误：customerId、duration、callResult、callRemark 不合法' }, 400);
+		}
+
+		if (clientRequestId === null) {
+			return c.json({ message: '参数错误：clientRequestId 不合法' }, 400);
+		}
+
+		if (startedAt === null || endedAt === null) {
+			return c.json({ message: '参数错误：startedAt 或 endedAt 不合法' }, 400);
+		}
+
+		if (startedAt && endedAt && new Date(endedAt).getTime() < new Date(startedAt).getTime()) {
+			return c.json({ message: '参数错误：endedAt 不能早于 startedAt' }, 400);
 		}
 
 		const result = await reportCallService(createDb(c.env.DB), {
@@ -35,6 +53,9 @@ export const callController = {
 			callResult,
 			callRemark,
 			userId: c.get('currentUser').id,
+			clientRequestId: clientRequestId ?? undefined,
+			startedAt: startedAt ?? undefined,
+			endedAt: endedAt ?? undefined,
 		});
 
 		if (!result.ok) {
@@ -75,4 +96,46 @@ function normalizeString(value: unknown): string | null {
 	}
 
 	return value.trim();
+}
+
+function normalizeOptionalClientRequestId(value: unknown): string | undefined | null {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value !== 'string') {
+		return null;
+	}
+
+	const normalized = value.trim();
+
+	if (!normalized || normalized.length > 128) {
+		return null;
+	}
+
+	return normalized;
+}
+
+function normalizeOptionalIsoDate(value: unknown): string | undefined | null {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value !== 'string') {
+		return null;
+	}
+
+	const normalized = value.trim();
+
+	if (!normalized) {
+		return null;
+	}
+
+	const date = new Date(normalized);
+
+	if (!Number.isFinite(date.getTime()) || date.toISOString() !== normalized) {
+		return null;
+	}
+
+	return normalized;
 }

@@ -331,7 +331,7 @@ firstCallTime
 lastCallTime
 ```
 
-注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序，独立于通用 query-builder 的历史语义。
+注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序。
 
 响应：
 
@@ -453,7 +453,7 @@ createdAt
 updatedAt
 ```
 
-注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序，独立于通用 query-builder 的历史语义。
+注意：本接口排序语义为 `sort=字段` 升序、`sort=-字段` 降序。
 
 响应：
 
@@ -590,9 +590,10 @@ curl 'http://localhost:8787/api/batches/1/summary' \
 
 - `page`：从 `0` 开始，默认 `0`
 - `pagesize`：默认 `10`
-- `sort=id`：按 `id` 降序
-- `sort=-id`：按 `id` 升序
+- `sort=id`：按 `id` 升序
+- `sort=-id`：按 `id` 降序
 - `name-like=张`：模糊查询
+- `like` 查询会把 `%`、`_`、`\` 当作普通文本安全转义
 - `status=1` 或 `status-eq=1`：等值查询
 - `role-in=1,2`：集合查询
 - `duration-gt=30`：大于查询
@@ -1210,7 +1211,10 @@ curl -X DELETE http://localhost:8787/api/users/3 \
   "customerId": 1,
   "duration": 66,
   "callResult": 1,
-  "callRemark": "客户已接听，有明确意向"
+  "callRemark": "客户已接听，有明确意向",
+  "clientRequestId": "uuid-from-app",
+  "startedAt": "2026-06-13T01:15:30.000Z",
+  "endedAt": "2026-06-13T01:16:36.000Z"
 }
 ```
 
@@ -1221,7 +1225,20 @@ curl -X DELETE http://localhost:8787/api/users/3 \
   "ok": true,
   "customerId": 1,
   "userId": 3,
-  "date": "2026-06-12"
+  "date": "2026-06-13",
+  "idempotent": false
+}
+```
+
+重复 `clientRequestId` 响应：
+
+```json
+{
+  "ok": true,
+  "customerId": 1,
+  "userId": 3,
+  "date": "2026-06-13",
+  "idempotent": true
 }
 ```
 
@@ -1238,13 +1255,42 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 - 只能上报归属于当前用户的未作废客户
 - 已作废客户返回 `404`
 
+增强规则：
+
+- `clientRequestId` 可选，用于员工 APP 网络重试或重复点击时的幂等提交
+- 同一 `userId + clientRequestId` 重复提交时，直接返回 `idempotent=true`
+- 重复请求不会重复插入 `call_logs`
+- 重复请求不会重复更新客户，也不会重复累加日报
+- 不传 `clientRequestId`、`startedAt`、`endedAt` 的旧请求体仍然兼容
+- `startedAt` / `endedAt` 保存真实拨打开始和挂断时间
+- 日报日期、`firstCallTime`、`lastCallTime` 优先使用 `endedAt`；未传 `endedAt` 时使用服务器收到请求的时间
+- 离线补传较早通话时，`firstCallTime` 会更新为更早的真实通话时间
+- 延迟补传较晚通话时，`lastCallTime` 会更新为更晚的真实通话时间
+
+校验规则：
+
+- `clientRequestId` 如传入，必须是非空字符串，最长 `128`
+- `startedAt` / `endedAt` 如传入，必须是合法 ISO 字符串
+- `endedAt` 不能早于 `startedAt`
+- `duration` 必须是非负整数
+- 第一版不强制校验 `duration` 与 `startedAt` / `endedAt` 的差值一致
+
 curl：
 
 ```bash
 curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
-  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向"}'
+  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向","clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
+```
+
+重复提交同一个 `clientRequestId`：
+
+```bash
+curl -X POST http://localhost:8787/api/calls/report \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <accessToken>" \
+  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"重复提交测试","clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
 ```
 
 ### GET /api/my-summary
@@ -1430,8 +1476,9 @@ createdAt
       "duration": 66,
       "callResult": 1,
       "callRemark": "客户已接听，有明确意向",
-      "startedAt": null,
-      "endedAt": null,
+      "clientRequestId": "uuid-from-app",
+      "startedAt": "2026-06-13T01:15:30.000Z",
+      "endedAt": "2026-06-13T01:16:36.000Z",
       "createdAt": "2026-06-13T02:30:06.000Z"
     }
   ]
@@ -1444,7 +1491,8 @@ createdAt
 - `username`、`userRealName` 来自 `users`
 - 不返回 `password_hash`
 - 不返回 `salt`
-- 当前 `call_logs` 尚无 `started_at` / `ended_at` 字段，本阶段固定返回 `startedAt: null`、`endedAt: null`
+- 返回 `clientRequestId` 便于排查 APP 幂等提交
+- 返回 `startedAt` / `endedAt` 展示真实拨打开始和挂断时间；旧记录或旧请求体未传时为 `null`
 - 时间范围按 `call_logs.created_at` 日期筛选
 
 错误响应：

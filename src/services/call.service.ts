@@ -1,5 +1,10 @@
 import type { Db } from '@/db';
-import { findCustomerForCall, findDailySummaryByUserAndDate, writeCallReportBatch } from '@/repositories/call.repository';
+import {
+	findCallLogByClientRequestId,
+	findCustomerForCall,
+	findDailySummaryByUserAndDate,
+	writeCallReportBatch,
+} from '@/repositories/call.repository';
 
 export interface CallActor {
 	id: number;
@@ -13,6 +18,9 @@ export interface ReportCallInput {
 	callResult: number;
 	callRemark: string;
 	userId: number;
+	clientRequestId?: string;
+	startedAt?: string;
+	endedAt?: string;
 }
 
 export type ReportCallResult =
@@ -21,6 +29,7 @@ export type ReportCallResult =
 			customerId: number;
 			userId: number;
 			date: string;
+			idempotent: boolean;
 	  }
 	| {
 			ok: false;
@@ -29,6 +38,23 @@ export type ReportCallResult =
 	  };
 
 export async function reportCallService(db: Db, input: ReportCallInput): Promise<ReportCallResult> {
+	if (input.clientRequestId) {
+		const existingCallLog = await findCallLogByClientRequestId(db, {
+			userId: input.userId,
+			clientRequestId: input.clientRequestId,
+		});
+
+		if (existingCallLog) {
+			return {
+				ok: true,
+				customerId: existingCallLog.customerId,
+				userId: input.userId,
+				date: formatBusinessDate(resolveExistingReportTime(existingCallLog)),
+				idempotent: true,
+			};
+		}
+	}
+
 	const customer = await findCustomerForCall(db, input.customerId);
 
 	if (!customer) {
@@ -47,25 +73,51 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 		};
 	}
 
-	const callTime = new Date();
-	const now = callTime.toISOString();
-	const date = formatBusinessDate(callTime);
+	const now = new Date().toISOString();
+	const reportTime = input.endedAt ?? now;
+	const date = formatBusinessDate(new Date(reportTime));
 
-	await writeCallReportBatch(db, {
-		customerId: input.customerId,
-		userId: input.userId,
-		duration: input.duration,
-		callResult: input.callResult,
-		callRemark: normalizeNullableString(input.callRemark),
-		now,
-		date,
-	});
+	try {
+		await writeCallReportBatch(db, {
+			customerId: input.customerId,
+			userId: input.userId,
+			duration: input.duration,
+			callResult: input.callResult,
+			callRemark: normalizeNullableString(input.callRemark),
+			now,
+			reportTime,
+			date,
+			clientRequestId: input.clientRequestId ?? null,
+			startedAt: input.startedAt ?? null,
+			endedAt: input.endedAt ?? null,
+		});
+	} catch (error) {
+		if (input.clientRequestId && isUniqueClientRequestConflict(error)) {
+			const existingCallLog = await findCallLogByClientRequestId(db, {
+				userId: input.userId,
+				clientRequestId: input.clientRequestId,
+			});
+
+			if (existingCallLog) {
+				return {
+					ok: true,
+					customerId: existingCallLog.customerId,
+					userId: input.userId,
+					date: formatBusinessDate(resolveExistingReportTime(existingCallLog)),
+					idempotent: true,
+				};
+			}
+		}
+
+		throw error;
+	}
 
 	return {
 		ok: true,
 		customerId: input.customerId,
 		userId: input.userId,
 		date,
+		idempotent: false,
 	};
 }
 
@@ -117,4 +169,18 @@ function formatBusinessDate(date: Date): string {
 		month: '2-digit',
 		day: '2-digit',
 	}).format(date);
+}
+
+function resolveExistingReportTime(row: { endedAt: string | null; callTime: string; createdAt: string }): Date {
+	return new Date(row.endedAt ?? row.callTime ?? row.createdAt);
+}
+
+function isUniqueClientRequestConflict(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const message = error.message.toLowerCase();
+
+	return message.includes('unique') && message.includes('client_request_id');
 }

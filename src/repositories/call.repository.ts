@@ -9,13 +9,41 @@ export interface ReportCallWriteInput {
 	callResult: number;
 	callRemark: string | null;
 	now: string;
+	reportTime: string;
 	date: string;
+	clientRequestId: string | null;
+	startedAt: string | null;
+	endedAt: string | null;
+}
+
+export interface ExistingCallReportRow {
+	customerId: number;
+	userId: number;
+	callTime: string;
+	endedAt: string | null;
+	createdAt: string;
 }
 
 export async function findCustomerForCall(db: Db, customerId: number): Promise<{ id: number; ownerId: number | null } | undefined> {
 	return db.query.customers.findFirst({
 		where: and(eq(customers.id, customerId), eq(customers.isDeleted, 0)),
 		columns: { id: true, ownerId: true },
+	});
+}
+
+export async function findCallLogByClientRequestId(
+	db: Db,
+	input: { userId: number; clientRequestId: string },
+): Promise<ExistingCallReportRow | undefined> {
+	return db.query.callLogs.findFirst({
+		where: and(eq(callLogs.userId, input.userId), eq(callLogs.clientRequestId, input.clientRequestId)),
+		columns: {
+			customerId: true,
+			userId: true,
+			callTime: true,
+			endedAt: true,
+			createdAt: true,
+		},
 	});
 }
 
@@ -49,10 +77,14 @@ export async function writeCallReportBatch(db: Db, input: ReportCallWriteInput):
 		db.insert(callLogs).values({
 			customerId: input.customerId,
 			userId: input.userId,
-			callTime: input.now,
+			callTime: input.reportTime,
 			duration: input.duration,
 			callResult: input.callResult,
 			callRemark: input.callRemark,
+			clientRequestId: input.clientRequestId,
+			startedAt: input.startedAt,
+			endedAt: input.endedAt,
+			createdAt: input.now,
 		}),
 		db
 			.update(customers)
@@ -68,8 +100,8 @@ export async function writeCallReportBatch(db: Db, input: ReportCallWriteInput):
 			.values({
 				userId: input.userId,
 				date: input.date,
-				firstCallTime: input.now,
-				lastCallTime: input.now,
+				firstCallTime: input.reportTime,
+				lastCallTime: input.reportTime,
 				totalCalls: 1,
 				connectedCalls: connectedIncrement,
 				totalDuration: durationIncrement,
@@ -79,7 +111,8 @@ export async function writeCallReportBatch(db: Db, input: ReportCallWriteInput):
 			.onConflictDoUpdate({
 				target: [agentDailySummaries.userId, agentDailySummaries.date],
 				set: {
-					lastCallTime: input.now,
+					firstCallTime: sql`case when ${agentDailySummaries.firstCallTime} is null or ${agentDailySummaries.firstCallTime} > ${input.reportTime} then ${input.reportTime} else ${agentDailySummaries.firstCallTime} end`,
+					lastCallTime: sql`case when ${agentDailySummaries.lastCallTime} is null or ${agentDailySummaries.lastCallTime} < ${input.reportTime} then ${input.reportTime} else ${agentDailySummaries.lastCallTime} end`,
 					totalCalls: sql`${agentDailySummaries.totalCalls} + 1`,
 					connectedCalls: sql`${agentDailySummaries.connectedCalls} + ${connectedIncrement}`,
 					totalDuration: sql`${agentDailySummaries.totalDuration} + ${durationIncrement}`,

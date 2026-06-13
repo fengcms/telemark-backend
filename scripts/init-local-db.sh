@@ -24,6 +24,12 @@ npx wrangler d1 execute telemark-backend-db --local --file=migrations/0004_rebui
 # 0005: 重命名列
 npx wrangler d1 execute telemark-backend-db --local --file=migrations/0005_rename_daily_summary_call_time_columns.sql > /dev/null 2>&1
 
+# 0006: customers 软删除字段
+npx wrangler d1 execute telemark-backend-db --local --file=migrations/0006_add_customer_soft_delete_columns.sql > /dev/null 2>&1
+
+# 0007: call_logs 幂等与真实通话时间字段
+npx wrangler d1 execute telemark-backend-db --local --file=migrations/0007_add_call_report_idempotency_fields.sql > /dev/null 2>&1
+
 echo ""
 echo "✅ 本地数据库初始化完成！"
 echo ""

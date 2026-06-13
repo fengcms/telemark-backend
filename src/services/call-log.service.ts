@@ -22,8 +22,9 @@ export interface CallLogItem {
 	duration: number;
 	callResult: number;
 	callRemark: string | null;
-	startedAt: null;
-	endedAt: null;
+	clientRequestId: string | null;
+	startedAt: string | null;
+	endedAt: string | null;
 	createdAt: string;
 }
 
@@ -70,8 +71,9 @@ function toCallLogItem(row: CallLogRow): CallLogItem {
 		duration: row.duration,
 		callResult: row.callResult,
 		callRemark: row.callRemark,
-		startedAt: null,
-		endedAt: null,
+		clientRequestId: row.clientRequestId,
+		startedAt: row.startedAt,
+		endedAt: row.endedAt,
 		createdAt: row.createdAt,
 	};
 }

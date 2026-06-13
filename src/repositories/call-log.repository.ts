@@ -29,6 +29,9 @@ export interface CallLogRow {
 	duration: number;
 	callResult: number;
 	callRemark: string | null;
+	clientRequestId: string | null;
+	startedAt: string | null;
+	endedAt: string | null;
 	createdAt: string;
 }
 
@@ -62,6 +65,9 @@ export async function findCallLogs(db: Db, filters: CallLogFilters): Promise<{ t
 			duration: callLogs.duration,
 			callResult: callLogs.callResult,
 			callRemark: callLogs.callRemark,
+			clientRequestId: callLogs.clientRequestId,
+			startedAt: callLogs.startedAt,
+			endedAt: callLogs.endedAt,
 			createdAt: callLogs.createdAt,
 		})
 		.from(callLogs)

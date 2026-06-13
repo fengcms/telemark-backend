@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, getTableColumns, gt, gte, inArray, like, lt, lte, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, gt, gte, inArray, lt, lte, type SQL, sql } from 'drizzle-orm';
 import type { AnySQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { Db } from '@/db';
 
@@ -29,8 +29,10 @@ export interface ListQueryResult<TItem> {
  * 约定：
  * - page 从 0 开始。
  * - pagesize 默认 10。
- * - sort=id 表示降序，sort=-id 表示升序。
+ * - 默认按 defaultSortField 降序。
+ * - sort=id 表示升序，sort=-id 表示降序。
  * - 仅 allowedFields 白名单字段允许被查询、排序和返回。
+ * - like 查询会把 %、_、\ 作为普通字符处理。
  */
 export async function handleListQuery<TTable extends SQLiteTable, TField extends FieldName<TTable>>(
 	table: TTable,
@@ -114,7 +116,7 @@ function buildCondition(column: AnySQLiteColumn, operator: QueryOperator, rawVal
 	}
 
 	if (operator === 'like') {
-		return like(column, `%${escapeLikeValue(rawValue.trim())}%`);
+		return sql`${column} LIKE ${`%${escapeLikeValue(rawValue.trim())}%`} ESCAPE '\\'`;
 	}
 
 	if (operator === 'in') {
@@ -186,9 +188,13 @@ function resolveSortField<TField extends string>(
 }
 
 function parseSortDirection(rawSort: string | string[] | undefined): 'asc' | 'desc' {
-	const sort = getFirstQueryValue(rawSort);
+	const sort = getFirstQueryValue(rawSort).trim();
 
-	return sort.startsWith('-') ? 'asc' : 'desc';
+	if (!sort) {
+		return 'desc';
+	}
+
+	return sort.startsWith('-') ? 'desc' : 'asc';
 }
 
 function parsePage(value: string | string[] | undefined): number {

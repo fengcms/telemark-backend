@@ -132,6 +132,9 @@ export const callLogs = sqliteTable(
 		// 单次拨打结果状态码，通常与 customers.status 保持同一套枚举。
 		callResult: integer('call_result').notNull(),
 		callRemark: text('call_remark'),
+		clientRequestId: text('client_request_id'),
+		startedAt: text('started_at'),
+		endedAt: text('ended_at'),
 
 		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
 	},
@@ -139,6 +142,9 @@ export const callLogs = sqliteTable(
 		index('idx_call_logs_customer_id').on(table.customerId),
 		index('idx_call_logs_user_id').on(table.userId),
 		index('idx_call_logs_call_time').on(table.callTime),
+		uniqueIndex('call_logs_user_client_request_unique')
+			.on(table.userId, table.clientRequestId)
+			.where(sql`${table.clientRequestId} IS NOT NULL`),
 	],
 );
 
