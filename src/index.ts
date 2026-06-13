@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { createDb } from '@/db';
+import { corsMiddleware } from '@/middleware/cors.middleware';
 import { authRoutes } from '@/routes/auth.routes';
 import { callRoutes } from '@/routes/call.routes';
 import { customerRoutes } from '@/routes/customer.routes';
 import { userRoutes } from '@/routes/user.routes';
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use('*', corsMiddleware());
 
 app.get('/', (c) => c.text('Hello World!'));
 

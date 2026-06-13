@@ -225,3 +225,55 @@ npx wrangler d1 migrations apply telemark-backend-db
 | `JWT_SECRET` | 环境变量 | JWT 签名密钥 |
 
 修改绑定后需运行 `pnpm cf-typegen` 更新类型定义。
+
+## CORS 跨域配置
+
+### 开发阶段配置
+
+当前项目已配置允许所有域名访问（`origin: '*'`），方便本地开发和测试。
+
+### 生产环境配置建议
+
+**重要：部署到生产环境前，请务必将 `origin` 修改为允许的域名列表！**
+
+#### 修改位置
+
+文件路径：[src/middleware/cors.middleware.ts](src/middleware/cors.middleware.ts)
+
+```typescript
+app.use(
+	'*',
+	cors({
+		// 生产环境请替换为实际的域名
+		origin: [
+			'https://your-admin-domain.com',    // 管理后台域名
+			'https://your-app-domain.com',       // 员工 APP 域名
+			'http://localhost:3000',             // 本地开发环境（可选）
+			'http://localhost:5173',             // Vite 本地开发端口（可选）
+		],
+		allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+		exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
+		maxAge: 86400,
+		credentials: true,
+	})
+);
+```
+
+#### 配置说明
+
+- **origin**: 允许的源地址列表，可以是字符串数组或函数
+  - `'*'`: 允许所有域名（仅用于开发环境）
+  - `['https://example.com']`: 仅允许指定域名
+  - `(origin) => origin.endsWith('.yourdomain.com')`: 动态匹配子域名
+- **allowMethods**: 允许的 HTTP 方法
+- **allowHeaders**: 允许的请求头（包含自定义认证头）
+- **credentials**: 是否允许携带 Cookie/认证信息（设为 true 时，origin 不能是 '*'）
+- **maxAge**: 预检请求缓存时间（秒）
+
+#### 安全建议
+
+1. **生产环境必须限制域名**：不要在生产环境使用 `'*'`
+2. **使用 HTTPS 域名**：生产环境应使用 https:// 协议
+3. **避免使用通配符子域名**：除非确实需要，否则列出具体域名更安全
+4. **定期审查允许列表**：移除不再使用的域名
