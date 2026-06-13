@@ -356,6 +356,14 @@ curl -s "$BASE_URL/api/my-customers?page=0&pagesize=20&sort=-id" \
   -s | jq
 ```
 
+历史客户接口此时默认查不到当前未拨打客户：
+
+```bash
+curl -s "$BASE_URL/api/my-customers/history?page=0&pagesize=20&sort=-updatedAt" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -s | jq
+```
+
 作废客户不能通话上报，预期 `404`：
 
 ```bash
@@ -381,6 +389,36 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
 curl -s "$BASE_URL/api/my-summary" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -s | jq
+```
+
+查询我的历史客户：
+
+```bash
+curl -s "$BASE_URL/api/my-customers/history?page=0&pagesize=10&sort=-updatedAt&status=1&type=1" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -s | jq
+```
+
+按名称、手机号、公司模糊查询我的历史客户：
+
+```bash
+curl -s "$BASE_URL/api/my-customers/history?page=0&pagesize=10&name-like=curl&phone-like=$PHONE_SUFFIX&company-like=curl" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -s | jq
+```
+
+传入 ownerId 查询别人客户，预期 `400`：
+
+```bash
+curl -i -s "$BASE_URL/api/my-customers/history?ownerId=$MANAGER_ID" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN"
+```
+
+超级管理员访问我的历史客户，预期 `403`：
+
+```bash
+curl -i -s "$BASE_URL/api/my-customers/history?page=0&pagesize=10" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
 ```
 
 ## 13. 审计与明细查询

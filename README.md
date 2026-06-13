@@ -199,6 +199,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 | DELETE | /api/customers/:id | 作废客户 | 管理员/经理 |
 | POST | /api/customers/batch-update | 批量更新客户状态/类型/备注 | 管理员/经理 |
 | GET | /api/my-customers | 我的客户 | 经理/员工 |
+| GET | /api/my-customers/history | 我的历史客户 | 经理/员工 |
 | POST | /api/customers/assign | 分配/回收线索 | 管理员/经理 |
 | GET | /api/users | 员工列表 | 管理员/经理 |
 | POST | /api/users | 创建员工 | 管理员 |

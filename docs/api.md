@@ -910,6 +910,102 @@ curl 'http://localhost:8787/api/my-customers?page=0&pagesize=10&sort=-id' \
   -H "Authorization: Bearer <employeeOrManagerAccessToken>"
 ```
 
+### GET /api/my-customers/history
+
+拉取当前登录员工或经理名下已经拨打过的历史客户。仅 `role=2` 或 `role=3` 可调用，`role=1` 超级管理员不可调用。
+
+本接口是员工 APP 个人接口，只能查询当前登录用户自己的历史客户。管理端查看全量员工通话历史应使用 `GET /api/call-logs`。
+
+强制条件：
+
+- `owner_id = 当前登录用户 ID`
+- `status != 0`
+- `is_deleted = 0`
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `page` | 否 | 从 `0` 开始，默认 `0`；非法值返回 `400` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100`；非法值返回 `400` |
+| `sort` | 否 | 默认 `-updatedAt`；`sort=updatedAt` 升序，`sort=-updatedAt` 降序 |
+| `status` | 否 | 客户状态，支持 `1`、`2`、`3`、`4` |
+| `status-in` | 否 | 客户状态集合，例如 `status-in=1,2` |
+| `type` | 否 | 客户类型，支持 `0`、`1` |
+| `type-in` | 否 | 客户类型集合，例如 `type-in=0,1` |
+| `name-like` | 否 | 客户名称模糊查询 |
+| `phone-like` | 否 | 手机号模糊查询 |
+| `company-like` | 否 | 公司名称模糊查询 |
+
+排序字段白名单：
+
+```txt
+id
+status
+type
+createdAt
+updatedAt
+```
+
+禁止参数：
+
+```txt
+ownerId
+owner_id
+userId
+```
+
+传入上述参数会返回 `400`，避免前端尝试查询其他人的客户。
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 10,
+  "total": 1,
+  "list": [
+    {
+      "id": 1,
+      "phone": "13900020001",
+      "name": "客户A",
+      "company": "测试公司A",
+      "type": 1,
+      "status": 1,
+      "remark": "客户有意向，下周一回电",
+      "ownerId": 3,
+      "batchId": 1,
+      "createdAt": "2026-06-13T00:00:00.000Z",
+      "updatedAt": "2026-06-13T02:00:00.000Z"
+    }
+  ]
+}
+```
+
+业务规则：
+
+- `role=2` 经理也只能查看自己名下的历史客户
+- `role=3` 普通员工只能查看自己名下的历史客户
+- 不返回 `status=0` 的未拨打客户；未拨打客户继续由 `GET /api/my-customers` 返回
+- 不返回已作废客户
+- 不返回 `isDeleted`、`deletedAt`、`deletedBy`、`deleteReason`
+- 非法 `status`、`type`、`page`、`pagesize` 或 `sort` 返回 `400`
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | 查询参数非法，或传入 `ownerId` / `owner_id` / `userId` |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是经理或普通员工 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/my-customers/history?page=0&pagesize=10&sort=-updatedAt&type=1&status=1' \
+  -H "Authorization: Bearer <employeeOrManagerAccessToken>"
+```
+
 ### POST /api/customers/assign
 
 批量分配或回收线索。仅 `role=1` 或 `role=2` 可调用。

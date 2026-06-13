@@ -14,6 +14,7 @@ export const customerRoutes = new Hono<CustomerRoutesEnv>();
 customerRoutes.post('/batches/import', requireAuth(), requireRoles([1, 2]), customerController.importBatch);
 customerRoutes.get('/customers', requireAuth(), requireRoles([1, 2]), customerController.listCustomers);
 customerRoutes.get('/my-customers', requireAuth(), requireRoles([2, 3]), customerController.listMyCustomers);
+customerRoutes.get('/my-customers/history', requireAuth(), requireRoles([2, 3]), customerController.listMyCustomerHistory);
 customerRoutes.post('/customers/assign', requireAuth(), requireRoles([1, 2]), customerController.assignCustomers);
 customerRoutes.post('/customers/batch-update', requireAuth(), requireRoles([1, 2]), customerController.batchUpdate);
 customerRoutes.get('/customers/:id', requireAuth(), requireRoles([1, 2]), customerController.detail);

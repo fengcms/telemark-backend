@@ -1365,6 +1365,202 @@ describe("Hello World worker", () => {
 			{ id: secondCustomer.id, type: 1, status: 1, remark: "批量标记意向" },
 		]);
 	});
+
+	it("lists only the current user's historical customers with filters and pagination", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("my_history_admin", 1);
+		const manager = await createTestUser("my_history_manager", 2);
+		const employee = await createTestUser("my_history_employee", 3);
+		const otherEmployee = await createTestUser("my_history_other", 3);
+		const disabledEmployee = await createTestUser("my_history_disabled", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const disabledToken = await tokenFor(disabledEmployee);
+
+		await setUserStatus(disabledEmployee.id, 0);
+
+		const uncalledCustomer = await createCustomer(admin.id, employee.id);
+		const connectedCustomer = await createCustomer(admin.id, employee.id);
+		const missedCustomer = await createCustomer(admin.id, employee.id);
+		const rejectedCustomer = await createCustomer(admin.id, employee.id);
+		const invalidCustomer = await createCustomer(admin.id, employee.id);
+		const otherCustomer = await createCustomer(admin.id, otherEmployee.id);
+		const managerCustomer = await createCustomer(admin.id, manager.id);
+		const deletedCustomer = await createCustomer(admin.id, employee.id);
+
+		await updateCustomerHistoryFixture(connectedCustomer.id, {
+			name: "历史客户甲",
+			company: "历史公司甲",
+			status: 1,
+			type: 1,
+			remark: "客户有意向，下周一回电",
+			updatedAt: "2026-06-13T08:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(missedCustomer.id, {
+			name: "历史客户乙",
+			company: "历史公司乙",
+			status: 2,
+			type: 0,
+			remark: "无人接听",
+			updatedAt: "2026-06-13T07:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(rejectedCustomer.id, {
+			name: "历史客户丙",
+			company: "历史公司丙",
+			status: 3,
+			type: 0,
+			remark: "拒接",
+			updatedAt: "2026-06-13T09:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(invalidCustomer.id, {
+			name: "历史客户丁",
+			company: "历史公司丁",
+			status: 4,
+			type: 0,
+			remark: "空号停机",
+			updatedAt: "2026-06-13T06:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(otherCustomer.id, {
+			name: "他人历史客户",
+			company: "他人公司",
+			status: 1,
+			type: 1,
+			remark: "不应被员工看到",
+			updatedAt: "2026-06-13T10:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(managerCustomer.id, {
+			name: "经理历史客户",
+			company: "经理公司",
+			status: 1,
+			type: 1,
+			remark: "经理自己的客户",
+			updatedAt: "2026-06-13T11:00:00.000Z",
+		});
+		await updateCustomerHistoryFixture(deletedCustomer.id, {
+			name: "已作废历史客户",
+			company: "作废公司",
+			status: 1,
+			type: 1,
+			remark: "不应返回",
+			updatedAt: "2026-06-13T12:00:00.000Z",
+		});
+		await softDeleteCustomer(deletedCustomer.id, admin.id);
+
+		const unauthenticatedResponse = await SELF.fetch("https://example.com/api/my-customers/history");
+		const disabledResponse = await SELF.fetch("https://example.com/api/my-customers/history", {
+			headers: { authorization: `Bearer ${disabledToken}` },
+		});
+		const adminResponse = await SELF.fetch("https://example.com/api/my-customers/history", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const employeeResponse = await SELF.fetch("https://example.com/api/my-customers/history?page=0&pagesize=2", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const managerResponse = await SELF.fetch("https://example.com/api/my-customers/history", {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+		const forbiddenOwnerResponse = await SELF.fetch(`https://example.com/api/my-customers/history?ownerId=${otherEmployee.id}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const forbiddenUserResponse = await SELF.fetch(`https://example.com/api/my-customers/history?userId=${otherEmployee.id}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const statusResponse = await SELF.fetch("https://example.com/api/my-customers/history?status=1", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const statusInResponse = await SELF.fetch("https://example.com/api/my-customers/history?status-in=2,3", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const typeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=1", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const nameResponse = await SELF.fetch("https://example.com/api/my-customers/history?name-like=客户甲", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const phoneResponse = await SELF.fetch(`https://example.com/api/my-customers/history?phone-like=${connectedCustomer.phone.slice(3)}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const companyResponse = await SELF.fetch("https://example.com/api/my-customers/history?company-like=公司乙", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const invalidSortResponse = await SELF.fetch("https://example.com/api/my-customers/history?sort=-passwordHash", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const invalidStatusResponse = await SELF.fetch("https://example.com/api/my-customers/history?status=0", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const invalidTypeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=2", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const invalidPageResponse = await SELF.fetch("https://example.com/api/my-customers/history?page=-1", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const oversizedPageResponse = await SELF.fetch("https://example.com/api/my-customers/history?pagesize=999", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const myCustomersResponse = await SELF.fetch("https://example.com/api/my-customers?page=0&pagesize=20", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(disabledResponse.status).toBe(401);
+		expect(adminResponse.status).toBe(403);
+		expect(employeeResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(forbiddenOwnerResponse.status).toBe(400);
+		expect(forbiddenUserResponse.status).toBe(400);
+		expect(invalidSortResponse.status).toBe(400);
+		expect(invalidStatusResponse.status).toBe(400);
+		expect(invalidTypeResponse.status).toBe(400);
+		expect(invalidPageResponse.status).toBe(400);
+
+		const employeeBody = await employeeResponse.json<{
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{ id: number; ownerId: number; status: number; updatedAt: string; isDeleted?: number; deletedAt?: string }>;
+		}>();
+		expect(employeeBody.page).toBe(0);
+		expect(employeeBody.pageSize).toBe(2);
+		expect(employeeBody.total).toBe(4);
+		expect(employeeBody.list.map((item) => item.id)).toEqual([rejectedCustomer.id, connectedCustomer.id]);
+		expect(employeeBody.list.every((item) => item.ownerId === employee.id && item.status !== 0)).toBe(true);
+		expect(employeeBody.list.every((item) => item.isDeleted === undefined && item.deletedAt === undefined)).toBe(true);
+
+		const managerBody = await managerResponse.json<{ total: number; list: Array<{ id: number; ownerId: number }> }>();
+		expect(managerBody.total).toBe(1);
+		expect(managerBody.list[0]).toMatchObject({
+			id: managerCustomer.id,
+			ownerId: manager.id,
+		});
+
+		expect((await statusResponse.json<{ total: number; list: Array<{ id: number; status: number }> }>()).list).toEqual([
+			expect.objectContaining({ id: connectedCustomer.id, status: 1 }),
+		]);
+		expect((await statusInResponse.json<{ total: number; list: Array<{ id: number; status: number }> }>()).list.map((item) => item.id)).toEqual([
+			rejectedCustomer.id,
+			missedCustomer.id,
+		]);
+		expect((await typeResponse.json<{ total: number; list: Array<{ id: number; type: number }> }>()).list).toEqual([
+			expect.objectContaining({ id: connectedCustomer.id, type: 1 }),
+		]);
+		expect((await nameResponse.json<{ total: number; list: Array<{ id: number }> }>()).list).toEqual([
+			expect.objectContaining({ id: connectedCustomer.id }),
+		]);
+		expect((await phoneResponse.json<{ total: number; list: Array<{ id: number }> }>()).list).toEqual([
+			expect.objectContaining({ id: connectedCustomer.id }),
+		]);
+		expect((await companyResponse.json<{ total: number; list: Array<{ id: number }> }>()).list).toEqual([
+			expect.objectContaining({ id: missedCustomer.id }),
+		]);
+		expect((await oversizedPageResponse.json<{ pageSize: number }>()).pageSize).toBe(100);
+
+		const myCustomersBody = await myCustomersResponse.json<{ total: number; list: Array<{ id: number; status: number }> }>();
+		expect(myCustomersBody.list.some((item) => item.id === uncalledCustomer.id && item.status === 0)).toBe(true);
+		expect(myCustomersBody.list.some((item) => item.id === connectedCustomer.id)).toBe(false);
+	});
 });
 
 async function ensureUsersTable(): Promise<void> {
@@ -1539,6 +1735,24 @@ async function softDeleteCustomer(customerId: number, deletedBy: number): Promis
 		"UPDATE customers SET is_deleted = 1, deleted_at = ?, deleted_by = ?, delete_reason = ? WHERE id = ?",
 	)
 		.bind(new Date().toISOString(), deletedBy, "测试作废", customerId)
+		.run();
+}
+
+async function updateCustomerHistoryFixture(
+	customerId: number,
+	input: {
+		name: string;
+		company: string;
+		status: number;
+		type: number;
+		remark: string;
+		updatedAt: string;
+	},
+): Promise<void> {
+	await env.DB.prepare(
+		"UPDATE customers SET name = ?, company = ?, status = ?, type = ?, remark = ?, updated_at = ? WHERE id = ?",
+	)
+		.bind(input.name, input.company, input.status, input.type, input.remark, input.updatedAt, customerId)
 		.run();
 }
 

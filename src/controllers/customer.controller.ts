@@ -5,12 +5,14 @@ import {
 	AssignCustomersError,
 	assignCustomersService,
 	batchUpdateCustomersService,
+	CustomerHistoryQueryError,
 	CustomerMutationError,
 	deleteCustomerService,
 	getCustomerDetailService,
 	type ImportCustomerInput,
 	importBatchService,
 	listCustomersService,
+	listMyCustomerHistoryService,
 	listMyCustomersService,
 	parseCustomerId,
 	type UpdateCustomerInput,
@@ -57,6 +59,20 @@ export const customerController = {
 		const result = await listMyCustomersService(createDb(c.env.DB), c.req.query(), c.get('currentUser').id);
 
 		return c.json(result);
+	},
+
+	async listMyCustomerHistory(c: CustomerContext) {
+		try {
+			const result = await listMyCustomerHistoryService(createDb(c.env.DB), c.req.query(), c.get('currentUser').id);
+
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof CustomerHistoryQueryError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
 	},
 
 	async importBatch(c: CustomerContext) {

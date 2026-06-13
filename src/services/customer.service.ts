@@ -13,7 +13,9 @@ import {
 	findCustomerDeleteStateById,
 	findCustomerDetailById,
 	findCustomersByIds,
+	findMyCustomerHistory,
 	insertCustomer,
+	type MyCustomerHistorySortField,
 	softDeleteCustomerById,
 	updateCustomerById,
 	updateCustomersOwnerWithLogs,
@@ -23,6 +25,10 @@ import { handleListQuery, type ListQueryResult } from '@/utils/query-builder';
 const ASSIGNMENT_ACTION_ASSIGN = 1;
 const ASSIGNMENT_ACTION_TRANSFER = 2;
 const ASSIGNMENT_ACTION_RECLAIM = 3;
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_MY_CUSTOMER_HISTORY_SORT = '-updatedAt';
+const MY_CUSTOMER_HISTORY_SORT_FIELDS = ['id', 'status', 'type', 'createdAt', 'updatedAt'] as const;
 
 export interface Actor {
 	id: number;
@@ -79,6 +85,13 @@ export interface BatchUpdateCustomersInput {
 	};
 }
 
+export interface MyCustomerHistoryResult {
+	page: number;
+	pageSize: number;
+	total: number;
+	list: CustomerBasicRow[];
+}
+
 const CUSTOMER_LIST_ALLOWED_FIELDS = [
 	'id',
 	'phone',
@@ -115,6 +128,15 @@ export class CustomerMutationError extends Error {
 	}
 }
 
+export class CustomerHistoryQueryError extends Error {
+	readonly status: 400;
+
+	constructor(message: string) {
+		super(message);
+		this.status = 400;
+	}
+}
+
 export async function listCustomersService(
 	db: Db,
 	query: Record<string, string | string[] | undefined>,
@@ -141,6 +163,39 @@ export async function listMyCustomersService(
 		defaultSortField: 'id',
 		forcedConditions: [eq(customers.ownerId, userId), eq(customers.status, 0), eq(customers.isDeleted, 0)],
 	});
+}
+
+export async function listMyCustomerHistoryService(
+	db: Db,
+	query: Record<string, string | string[] | undefined>,
+	userId: number,
+): Promise<MyCustomerHistoryResult> {
+	assertNoForbiddenPersonalHistoryParams(query);
+
+	const page = parseStrictPage(query.page);
+	const pageSize = parseStrictPageSize(query.pagesize);
+	const sort = parseMyCustomerHistorySort(query.sort);
+	const result = await findMyCustomerHistory(db, {
+		userId,
+		page,
+		pageSize,
+		sortField: sort.field,
+		sortDirection: sort.direction,
+		status: parseOptionalStatus(query.status),
+		statusIn: parseOptionalStatusIn(query['status-in']),
+		type: parseOptionalType(query.type),
+		typeIn: parseOptionalTypeIn(query['type-in']),
+		nameLike: parseOptionalLike(query['name-like']),
+		phoneLike: parseOptionalLike(query['phone-like']),
+		companyLike: parseOptionalLike(query['company-like']),
+	});
+
+	return {
+		page,
+		pageSize,
+		total: result.total,
+		list: result.list,
+	};
 }
 
 export async function importBatchService(db: Db, input: ImportBatchInput): Promise<ImportBatchResult> {
@@ -369,4 +424,157 @@ function normalizeNullableString(value: string | undefined): string | null {
 	const normalized = value.trim();
 
 	return normalized.length > 0 ? normalized : null;
+}
+
+function assertNoForbiddenPersonalHistoryParams(query: Record<string, string | string[] | undefined>): void {
+	for (const key of ['ownerId', 'owner_id', 'userId']) {
+		if (query[key] !== undefined) {
+			throw new CustomerHistoryQueryError('不允许使用 ownerId/userId 查询个人历史客户');
+		}
+	}
+}
+
+function parseStrictPage(value: string | string[] | undefined): number {
+	const rawValue = getFirstQueryValue(value).trim();
+
+	if (!rawValue) {
+		return 0;
+	}
+
+	const parsed = Number(rawValue);
+
+	if (!Number.isInteger(parsed) || parsed < 0) {
+		throw new CustomerHistoryQueryError('page 参数不合法');
+	}
+
+	return parsed;
+}
+
+function parseStrictPageSize(value: string | string[] | undefined): number {
+	const rawValue = getFirstQueryValue(value).trim();
+
+	if (!rawValue) {
+		return DEFAULT_PAGE_SIZE;
+	}
+
+	const parsed = Number(rawValue);
+
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		throw new CustomerHistoryQueryError('pagesize 参数不合法');
+	}
+
+	return Math.min(parsed, MAX_PAGE_SIZE);
+}
+
+function parseMyCustomerHistorySort(value: string | string[] | undefined): {
+	field: MyCustomerHistorySortField;
+	direction: 'asc' | 'desc';
+} {
+	const rawSort = getFirstQueryValue(value).trim() || DEFAULT_MY_CUSTOMER_HISTORY_SORT;
+	const direction = rawSort.startsWith('-') ? 'desc' : 'asc';
+	const field = rawSort.startsWith('-') ? rawSort.slice(1) : rawSort;
+
+	if (!MY_CUSTOMER_HISTORY_SORT_FIELDS.includes(field as MyCustomerHistorySortField)) {
+		throw new CustomerHistoryQueryError('sort 字段不支持');
+	}
+
+	return {
+		field: field as MyCustomerHistorySortField,
+		direction,
+	};
+}
+
+function parseOptionalStatus(value: string | string[] | undefined): number | undefined {
+	const rawValue = getFirstQueryValue(value).trim();
+
+	if (!rawValue) {
+		return undefined;
+	}
+
+	const parsed = Number(rawValue);
+
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > 4) {
+		throw new CustomerHistoryQueryError('status 参数不合法');
+	}
+
+	return parsed;
+}
+
+function parseOptionalStatusIn(value: string | string[] | undefined): number[] | undefined {
+	const values = parseIntegerList(value);
+
+	if (!values) {
+		return undefined;
+	}
+
+	if (values.some((item) => item < 1 || item > 4)) {
+		throw new CustomerHistoryQueryError('status-in 参数不合法');
+	}
+
+	return values;
+}
+
+function parseOptionalType(value: string | string[] | undefined): number | undefined {
+	const rawValue = getFirstQueryValue(value).trim();
+
+	if (!rawValue) {
+		return undefined;
+	}
+
+	const parsed = Number(rawValue);
+
+	if (parsed !== 0 && parsed !== 1) {
+		throw new CustomerHistoryQueryError('type 参数不合法');
+	}
+
+	return parsed;
+}
+
+function parseOptionalTypeIn(value: string | string[] | undefined): number[] | undefined {
+	const values = parseIntegerList(value);
+
+	if (!values) {
+		return undefined;
+	}
+
+	if (values.some((item) => item !== 0 && item !== 1)) {
+		throw new CustomerHistoryQueryError('type-in 参数不合法');
+	}
+
+	return values;
+}
+
+function parseIntegerList(value: string | string[] | undefined): number[] | undefined {
+	const rawValue = getFirstQueryValue(value).trim();
+
+	if (!rawValue) {
+		return undefined;
+	}
+
+	const values = rawValue.split(',').map((item) => {
+		const normalized = item.trim();
+		const parsed = Number(normalized);
+
+		if (!normalized || !Number.isInteger(parsed)) {
+			throw new CustomerHistoryQueryError('in 参数不合法');
+		}
+
+		return parsed;
+	});
+
+	return values.length > 0 ? values : undefined;
+}
+
+function parseOptionalLike(value: string | string[] | undefined): string | undefined {
+	const normalized = getFirstQueryValue(value).trim();
+
+	return normalized.length > 0 ? normalized : undefined;
+}
+
+function getFirstQueryValue(value: string | string[] | undefined): string {
+	if (Array.isArray(value)) {
+		return value[0] ?? '';
+	}
+
+	return value ?? '';
 }

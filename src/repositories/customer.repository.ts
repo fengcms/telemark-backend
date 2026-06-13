@@ -1,4 +1,5 @@
-import { aliasedTable, and, eq, inArray } from 'drizzle-orm';
+import { aliasedTable, and, asc, count, desc, eq, gt, inArray, like, type SQL } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '@/db';
 import { assignmentLogs, batches, customers, users } from '@/db/schema';
 
@@ -75,6 +76,33 @@ export interface BatchUpdateCustomerInput {
 	remark?: string | null;
 	updatedAt: string;
 }
+
+export type MyCustomerHistorySortField = 'id' | 'status' | 'type' | 'createdAt' | 'updatedAt';
+
+export interface MyCustomerHistoryFilters {
+	userId: number;
+	page: number;
+	pageSize: number;
+	sortField: MyCustomerHistorySortField;
+	sortDirection: 'asc' | 'desc';
+	status?: number;
+	statusIn?: number[];
+	type?: number;
+	typeIn?: number[];
+	nameLike?: string;
+	phoneLike?: string;
+	companyLike?: string;
+}
+
+export type MyCustomerHistoryRow = CustomerBasicRow;
+
+const myCustomerHistorySortColumns: Record<MyCustomerHistorySortField, AnySQLiteColumn> = {
+	id: customers.id,
+	status: customers.status,
+	type: customers.type,
+	createdAt: customers.createdAt,
+	updatedAt: customers.updatedAt,
+};
 
 export async function createBatch(db: Db, input: CreateBatchInput): Promise<{ id: number }> {
 	const result = await db
@@ -269,6 +297,40 @@ export async function batchUpdateCustomersByIds(db: Db, customerIds: number[], i
 	return result.length;
 }
 
+export async function findMyCustomerHistory(
+	db: Db,
+	filters: MyCustomerHistoryFilters,
+): Promise<{ total: number; list: MyCustomerHistoryRow[] }> {
+	const whereClause = buildMyCustomerHistoryWhereClause(filters);
+	const totalRows = await db.select({ total: count() }).from(customers).where(whereClause);
+	const sortColumn = myCustomerHistorySortColumns[filters.sortField];
+	const orderBy = filters.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
+	const list = await db
+		.select({
+			id: customers.id,
+			phone: customers.phone,
+			name: customers.name,
+			company: customers.company,
+			type: customers.type,
+			status: customers.status,
+			remark: customers.remark,
+			ownerId: customers.ownerId,
+			batchId: customers.batchId,
+			createdAt: customers.createdAt,
+			updatedAt: customers.updatedAt,
+		})
+		.from(customers)
+		.where(whereClause)
+		.orderBy(orderBy)
+		.limit(filters.pageSize)
+		.offset(filters.page * filters.pageSize);
+
+	return {
+		total: totalRows[0]?.total ?? 0,
+		list,
+	};
+}
+
 export async function updateCustomersOwnerWithLogs(
 	db: Db,
 	customerIds: number[],
@@ -286,4 +348,42 @@ export async function updateCustomersOwnerWithLogs(
 			.where(and(inArray(customers.id, customerIds), eq(customers.isDeleted, 0))),
 		db.insert(assignmentLogs).values(logs),
 	]);
+}
+
+function buildMyCustomerHistoryWhereClause(filters: MyCustomerHistoryFilters): SQL {
+	const conditions: SQL[] = [eq(customers.ownerId, filters.userId), gt(customers.status, 0), eq(customers.isDeleted, 0)];
+
+	if (filters.status !== undefined) {
+		conditions.push(eq(customers.status, filters.status));
+	}
+
+	if (filters.statusIn && filters.statusIn.length > 0) {
+		conditions.push(inArray(customers.status, filters.statusIn));
+	}
+
+	if (filters.type !== undefined) {
+		conditions.push(eq(customers.type, filters.type));
+	}
+
+	if (filters.typeIn && filters.typeIn.length > 0) {
+		conditions.push(inArray(customers.type, filters.typeIn));
+	}
+
+	if (filters.nameLike) {
+		conditions.push(like(customers.name, `%${escapeLikeValue(filters.nameLike)}%`));
+	}
+
+	if (filters.phoneLike) {
+		conditions.push(like(customers.phone, `%${escapeLikeValue(filters.phoneLike)}%`));
+	}
+
+	if (filters.companyLike) {
+		conditions.push(like(customers.company, `%${escapeLikeValue(filters.companyLike)}%`));
+	}
+
+	return and(...conditions) as SQL;
+}
+
+function escapeLikeValue(value: string): string {
+	return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }
