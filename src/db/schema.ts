@@ -217,6 +217,33 @@ export const agentDailySummaries = sqliteTable(
 	],
 );
 
+// 常用客户反馈备注表：供 APP 快捷选择，管理后台可维护启停与排序。
+export const commonCallRemarks = sqliteTable(
+	'common_call_remarks',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+
+		// 备注内容，全局唯一。
+		content: text('content').notNull().unique(),
+
+		// 排序值，越小越靠前。
+		sortOrder: integer('sort_order').notNull().default(0),
+
+		// 1: 启用, 0: 停用。
+		status: integer('status').notNull().default(1),
+
+		// 预留使用次数，后续可用于智能排序。
+		usageCount: integer('usage_count').notNull().default(0),
+
+		createdBy: integer('created_by').references(() => users.id),
+		updatedBy: integer('updated_by').references(() => users.id),
+
+		createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+		updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+	},
+	(table) => [index('idx_common_call_remarks_status_sort').on(table.status, table.sortOrder)],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
 	createdBatches: many(batches),
 	customers: many(customers),
@@ -225,6 +252,8 @@ export const usersRelations = relations(users, ({ many }) => ({
 	assignmentLogsTo: many(assignmentLogs, { relationName: 'toUser' }),
 	assignmentLogsOperated: many(assignmentLogs, { relationName: 'operator' }),
 	dailySummaries: many(agentDailySummaries),
+	createdCommonCallRemarks: many(commonCallRemarks, { relationName: 'commonCallRemarkCreator' }),
+	updatedCommonCallRemarks: many(commonCallRemarks, { relationName: 'commonCallRemarkUpdater' }),
 }));
 
 export const batchesRelations = relations(batches, ({ one, many }) => ({
@@ -285,5 +314,18 @@ export const agentDailySummariesRelations = relations(agentDailySummaries, ({ on
 	user: one(users, {
 		fields: [agentDailySummaries.userId],
 		references: [users.id],
+	}),
+}));
+
+export const commonCallRemarksRelations = relations(commonCallRemarks, ({ one }) => ({
+	creator: one(users, {
+		fields: [commonCallRemarks.createdBy],
+		references: [users.id],
+		relationName: 'commonCallRemarkCreator',
+	}),
+	updater: one(users, {
+		fields: [commonCallRemarks.updatedBy],
+		references: [users.id],
+		relationName: 'commonCallRemarkUpdater',
 	}),
 }));

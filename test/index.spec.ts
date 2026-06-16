@@ -577,6 +577,98 @@ describe("Hello World worker", () => {
 		expect(employeeUsersResponse.status).toBe(403);
 	});
 
+	it("serves and manages common call remarks from D1", async () => {
+		await ensureCrmTables();
+
+		const manager = await createTestUser("common_remark_manager", 2);
+		const employee = await createTestUser("common_remark_employee", 3);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const content = `客户需要设计方案${Date.now()}`;
+
+		const unauthenticatedAppResponse = await SELF.fetch("https://example.com/api/call-remarks/common");
+		expect(unauthenticatedAppResponse.status).toBe(401);
+
+		const createResponse = await SELF.fetch("https://example.com/api/common-call-remarks", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${managerToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				content,
+				sortOrder: 5,
+				status: 1,
+			}),
+		});
+
+		expect(createResponse.status).toBe(200);
+		const created = await createResponse.json<{ id: number; content: string; sortOrder: number; status: number; createdBy: number; updatedBy: number }>();
+		expect(created).toMatchObject({
+			content,
+			sortOrder: 5,
+			status: 1,
+			createdBy: manager.id,
+			updatedBy: manager.id,
+		});
+
+		const appResponse = await SELF.fetch("https://example.com/api/call-remarks/common", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+
+		expect(appResponse.status).toBe(200);
+		expect(await appResponse.json<string[]>()).toContain(content);
+
+		const listResponse = await SELF.fetch(`https://example.com/api/common-call-remarks?content-like=${encodeURIComponent(content)}&status=1`, {
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+
+		expect(listResponse.status).toBe(200);
+		const listBody = await listResponse.json<{ total: number; list: Array<{ id: number; content: string }> }>();
+		expect(listBody.total).toBe(1);
+		expect(listBody.list[0]).toMatchObject({ id: created.id, content });
+
+		const updatedContent = `${content}_更新`;
+		const updateResponse = await SELF.fetch(`https://example.com/api/common-call-remarks/${created.id}`, {
+			method: "PATCH",
+			headers: {
+				authorization: `Bearer ${managerToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				content: updatedContent,
+				sortOrder: 15,
+				status: 1,
+			}),
+		});
+
+		expect(updateResponse.status).toBe(200);
+		expect(await updateResponse.json()).toMatchObject({
+			id: created.id,
+			content: updatedContent,
+			sortOrder: 15,
+			status: 1,
+			updatedBy: manager.id,
+		});
+
+		const deleteResponse = await SELF.fetch(`https://example.com/api/common-call-remarks/${created.id}`, {
+			method: "DELETE",
+			headers: { authorization: `Bearer ${managerToken}` },
+		});
+
+		expect(deleteResponse.status).toBe(200);
+		expect(await deleteResponse.json()).toMatchObject({
+			id: created.id,
+			status: 0,
+		});
+
+		const appResponseAfterDelete = await SELF.fetch("https://example.com/api/call-remarks/common", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+
+		expect(await appResponseAfterDelete.json<string[]>()).not.toContain(updatedContent);
+	});
+
 	it("validates assignment target status and role", async () => {
 		await ensureCrmTables();
 
@@ -1851,8 +1943,10 @@ async function ensureCrmTables(): Promise<void> {
 		"CREATE TABLE IF NOT EXISTS assignment_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, from_user_id INTEGER, to_user_id INTEGER, operator_id INTEGER NOT NULL, action INTEGER NOT NULL, remark TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(from_user_id) REFERENCES users(id), FOREIGN KEY(to_user_id) REFERENCES users(id), FOREIGN KEY(operator_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS call_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, user_id INTEGER NOT NULL, call_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, duration INTEGER NOT NULL DEFAULT 0, call_result INTEGER NOT NULL, call_remark TEXT, client_request_id TEXT, started_at TEXT, ended_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(user_id) REFERENCES users(id))",
 		"CREATE TABLE IF NOT EXISTS agent_daily_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL, first_call_time TEXT, last_call_time TEXT, total_calls INTEGER NOT NULL DEFAULT 0, connected_calls INTEGER NOT NULL DEFAULT 0, total_duration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))",
+		"CREATE TABLE IF NOT EXISTS common_call_remarks (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL UNIQUE, sort_order INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 1, usage_count INTEGER NOT NULL DEFAULT 0, created_by INTEGER, updated_by INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(created_by) REFERENCES users(id), FOREIGN KEY(updated_by) REFERENCES users(id))",
 		"CREATE INDEX IF NOT EXISTS idx_customers_is_deleted ON customers(is_deleted)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_daily_summaries_user_id_date ON agent_daily_summaries(user_id, date)",
+		"CREATE INDEX IF NOT EXISTS idx_common_call_remarks_status_sort ON common_call_remarks(status, sort_order)",
 	]);
 	await ensureColumn("customers", "is_deleted", "INTEGER NOT NULL DEFAULT 0");
 	await ensureColumn("customers", "deleted_at", "TEXT");

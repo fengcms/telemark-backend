@@ -1510,6 +1510,113 @@ curl 'http://localhost:8787/api/call-logs?page=0&pagesize=20&sort=-id&userId=3&c
   -H "Authorization: Bearer <adminOrManagerAccessToken>"
 ```
 
+## 常用反馈备注接口
+
+### GET /api/call-remarks/common
+
+获取 APP 通话反馈弹窗的常用备注。仅 `role=2` 或 `role=3` 可调用。
+
+响应为字符串数组：
+
+```json
+[
+  "客户已接听，有明确意向",
+  "客户有意向，稍后回访",
+  "无人接听，稍后再拨"
+]
+```
+
+业务规则：
+
+- 只返回 `status=1` 的备注
+- 按 `sortOrder ASC, id ASC` 排序
+- 返回数组本身，不包裹 `list`
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/call-remarks/common' \
+  -H "Authorization: Bearer <employeeOrManagerAccessToken>"
+```
+
+### GET /api/common-call-remarks
+
+管理端查询常用备注配置。仅 `role=1` 或 `role=2` 可调用。
+
+支持通用查询器参数：
+
+```txt
+page
+pagesize
+sort
+content-like
+status
+sortOrder
+usageCount
+```
+
+响应：
+
+```json
+{
+  "page": 0,
+  "pageSize": 10,
+  "total": 1,
+  "list": [
+    {
+      "id": 1,
+      "content": "客户已接听，有明确意向",
+      "sortOrder": 10,
+      "status": 1,
+      "usageCount": 0,
+      "createdBy": null,
+      "updatedBy": null,
+      "createdAt": "2026-06-16T00:00:00.000Z",
+      "updatedAt": "2026-06-16T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/common-call-remarks
+
+新增常用备注。仅 `role=1` 或 `role=2` 可调用。
+
+请求：
+
+```json
+{
+  "content": "客户需要先看装修案例",
+  "sortOrder": 30,
+  "status": 1
+}
+```
+
+### PATCH /api/common-call-remarks/:id
+
+更新常用备注。仅 `role=1` 或 `role=2` 可调用。字段均可选。
+
+请求：
+
+```json
+{
+  "content": "客户需要先看案例",
+  "sortOrder": 35,
+  "status": 1
+}
+```
+
+### DELETE /api/common-call-remarks/:id
+
+软删除常用备注。仅 `role=1` 或 `role=2` 可调用。实际行为是将 `status` 更新为 `0`。
+
+curl：
+
+```bash
+curl -X DELETE http://localhost:8787/api/common-call-remarks/1 \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
 ## 本地联调建议顺序
 
 1. 启动本地 Worker：`pnpm exec wrangler dev`
