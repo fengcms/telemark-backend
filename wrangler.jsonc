@@ -18,13 +18,14 @@
 		{
 			"binding": "DB",
 			"database_name": "telemark-backend-db",
+			"database_id": "f5265e63-8942-4d96-99f8-e868df5c40f0",
 			"migrations_dir": "migrations"
 		}
 	],
 	"kv_namespaces": [
 		{
 			"binding": "c_kv",
-			"id": "telemark-backend-cache"
+			"id": "28b9aa4829304bacacf1f3f9044725e4"
 		}
 	],
 	"vars": {
