@@ -67,7 +67,7 @@
 curl：
 
 ```bash
-curl -X POST http://localhost:8787/api/auth/init-admin \
+curl -X POST https://telemark-api.bailashu.com/api/auth/init-admin \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9","realName":"超级管理员","phone":"13800000000","remark":"初始化超级管理员"}'
 ```

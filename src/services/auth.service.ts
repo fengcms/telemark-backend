@@ -284,18 +284,6 @@ export async function changePasswordService(deps: AuthServiceDeps, input: Change
 }
 
 export async function initializeAdminService(deps: AuthServiceDeps, input: InitializeAdminInput): Promise<InitializeAdminServiceResult> {
-	const existingUser = await deps.db.query.users.findFirst({
-		columns: { id: true },
-	});
-
-	if (existingUser) {
-		return {
-			ok: false,
-			status: 409,
-			message: '系统已存在用户，禁止重复初始化管理员',
-		};
-	}
-
 	const existingSuperAdmin = await deps.db.query.users.findFirst({
 		where: eq(users.role, 1),
 		columns: { id: true },
