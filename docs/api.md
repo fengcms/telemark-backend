@@ -1351,7 +1351,8 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 
 - 插入一条不可变 `call_logs` 通话记录
 - 更新 `customers.status` 为 `callResult`
-- 更新 `customers.remark` 为 `callRemark`
+- 当 `callResult=1` 时，更新 `customers.remark` 为 `callRemark`
+- 当 `callResult!=1` 时，`call_logs.call_remark` 保存为空，且不更新 `customers.remark`
 - 当 `callResult=1` 时，自动将 `customers.type` 改为 `1`
 - 按 `(user_id, date)` upsert `agent_daily_summaries`
 - 新日报：`first_call_time` 与 `last_call_time` 均为当前时间，`total_calls=1`
@@ -1374,6 +1375,8 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 
 校验规则：
 
+- 当 `callResult=1`（已接听）时，`callRemark` 必填，且去除首尾空格后不能为空
+- 当 `callResult!=1` 时，`callRemark` 不需要传；即使传入，后端也会忽略并保存为空
 - `clientRequestId` 如传入，必须是非空字符串，最长 `128`
 - `startedAt` / `endedAt` 如传入，必须是合法 ISO 字符串
 - `endedAt` 不能早于 `startedAt`
@@ -1382,11 +1385,22 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 
 curl：
 
+已接听，必须传 `callRemark`：
+
 ```bash
 curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
   -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向","clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
+```
+
+非已接听，不需要传 `callRemark`：
+
+```bash
+curl -X POST http://localhost:8787/api/calls/report \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <accessToken>" \
+  -d '{"customerId":1,"duration":0,"callResult":2,"clientRequestId":"uuid-from-app-no-answer","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:15:30.000Z"}'
 ```
 
 重复提交同一个 `clientRequestId`：

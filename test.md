@@ -375,11 +375,23 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
 
 ## 12. 上报通话结果
 
+已接听必须传 `callRemark`：
+
 ```bash
 curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
   -d "{\"customerId\":$CUSTOMER_ID,\"duration\":66,\"callResult\":1,\"callRemark\":\"curl 测试：客户已接听\"}" \
+  -s | jq
+```
+
+非已接听不需要传 `callRemark`，后端会把本次通话日志备注保存为空，且不更新客户原有备注：
+
+```bash
+curl -s -X POST "$BASE_URL/api/calls/report" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":0,\"callResult\":2}" \
   -s | jq
 ```
 

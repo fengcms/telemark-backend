@@ -411,7 +411,7 @@ curl 'http://localhost:8787/api/call-remarks/common' \
 | `customerId` | 是 | 客户 ID |
 | `duration` | 是 | 通话时长（秒），非负整数 |
 | `callResult` | 是 | 通话结果：`1` 已接听 / `2` 无人接听 / `3` 拒接 / `4` 空号停机 |
-| `callRemark` | 否 | 通话备注 |
+| `callRemark` | 条件必填 | 仅 `callResult=1`（已接听）时必填；其他结果不要传，后端会忽略并保存为空 |
 | `clientRequestId` | 否 | 幂等键，防止网络重试导致重复提交，建议每次上报都传 |
 | `startedAt` | 否 | 通话开始时间（ISO 8601） |
 | `endedAt` | 否 | 通话结束时间（ISO 8601） |
@@ -443,10 +443,17 @@ curl 'http://localhost:8787/api/call-remarks/common' \
 后端自动副作用（APP 无需额外请求）：
 
 - 更新客户状态为 `callResult`
-- 更新客户备注为 `callRemark`
+- 当 `callResult=1`（已接听）时，更新客户备注为 `callRemark`
+- 当 `callResult!=1` 时，本次通话日志备注为空，且不会更新客户已有备注
 - 当 `callResult=1`（已接听）时，自动将客户类型升级为 `1`（意向客户）
 - 自动累加今日战报数据（总拨打数、接通数、通话时长等）
 - 该客户从"待拨列表"自动消失，进入"已拨历史"
+
+APP 表单规则：
+
+- 用户选择"已接听"时，展示备注输入框，并要求填写非空备注
+- 用户选择"无人接听"、"拒接"、"空号停机"等其他结果时，隐藏备注输入框并清空本地备注
+- 提交其他结果时不要传 `callRemark`
 
 幂等规则：
 

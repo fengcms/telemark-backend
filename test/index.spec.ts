@@ -723,6 +723,7 @@ describe("Hello World worker", () => {
 		const firstCustomer = await createCustomer(admin.id, employee.id);
 		const secondCustomer = await createCustomer(admin.id, employee.id);
 		const thirdCustomer = await createCustomer(admin.id, employee.id);
+		const fourthCustomer = await createCustomer(admin.id, employee.id);
 		const otherCustomer = await createCustomer(admin.id, otherEmployee.id);
 
 		const firstResponse = await reportCall(employeeToken, {
@@ -761,6 +762,7 @@ describe("Hello World worker", () => {
 			startedAt: "2026-06-13T00:59:30.000Z",
 			endedAt: "2026-06-13T01:00:00.000Z",
 		});
+		await env.DB.prepare("UPDATE customers SET remark = ? WHERE id = ?").bind("需要保留的客户备注", thirdCustomer.id).run();
 		const laterResponse = await reportCall(employeeToken, {
 			customerId: thirdCustomer.id,
 			duration: 0,
@@ -769,6 +771,14 @@ describe("Hello World worker", () => {
 			clientRequestId: "late-request-id",
 			startedAt: "2026-06-13T03:00:00.000Z",
 			endedAt: "2026-06-13T03:01:00.000Z",
+		});
+		const noRemarkResponse = await reportCall(employeeToken, {
+			customerId: fourthCustomer.id,
+			duration: 0,
+			callResult: 3,
+			clientRequestId: "no-remark-request-id",
+			startedAt: "2026-06-13T03:10:00.000Z",
+			endedAt: "2026-06-13T03:10:00.000Z",
 		});
 
 		expect(firstResponse.status).toBe(200);
@@ -795,6 +805,7 @@ describe("Hello World worker", () => {
 		});
 		expect(earlierResponse.status).toBe(200);
 		expect(laterResponse.status).toBe(200);
+		expect(noRemarkResponse.status).toBe(200);
 
 		const firstCustomerAfterDuplicate = await env.DB.prepare("SELECT status, type, remark FROM customers WHERE id = ?")
 			.bind(firstCustomer.id)
@@ -804,6 +815,19 @@ describe("Hello World worker", () => {
 			type: 1,
 			remark: "首次幂等通话",
 		});
+
+		const nonConnectedCustomer = await env.DB.prepare("SELECT status, remark FROM customers WHERE id = ?")
+			.bind(thirdCustomer.id)
+			.first<{ status: number; remark: string | null }>();
+		expect(nonConnectedCustomer).toEqual({
+			status: 2,
+			remark: "需要保留的客户备注",
+		});
+
+		const nonConnectedCallLog = await env.DB.prepare("SELECT call_remark FROM call_logs WHERE user_id = ? AND client_request_id = ?")
+			.bind(employee.id, "late-request-id")
+			.first<{ call_remark: string | null }>();
+		expect(nonConnectedCallLog).toEqual({ call_remark: null });
 
 		const callLogCount = await env.DB.prepare("SELECT count(*) AS total FROM call_logs WHERE user_id = ? AND client_request_id = ?")
 			.bind(employee.id, "same-request-id")
@@ -836,8 +860,8 @@ describe("Hello World worker", () => {
 		expect(employeeSummary).toEqual({
 			date: "2026-06-13",
 			first_call_time: "2026-06-13T01:00:00.000Z",
-			last_call_time: "2026-06-13T03:01:00.000Z",
-			total_calls: 3,
+			last_call_time: "2026-06-13T03:10:00.000Z",
+			total_calls: 4,
 			connected_calls: 2,
 			total_duration: 96,
 		});
@@ -889,6 +913,8 @@ describe("Hello World worker", () => {
 				})
 			).status,
 		).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1 })).status).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "   " })).status).toBe(400);
 		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "空幂等", clientRequestId: "" })).status).toBe(
 			400,
 		);
@@ -2434,7 +2460,7 @@ async function reportCall(
 		customerId: number;
 		duration: number;
 		callResult: number;
-		callRemark: string;
+		callRemark?: string;
 		clientRequestId?: string;
 		startedAt?: string;
 		endedAt?: string;

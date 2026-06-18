@@ -26,13 +26,18 @@ export const callController = {
 		const customerId = normalizePositiveInteger(body?.customerId);
 		const duration = normalizeNonNegativeInteger(body?.duration);
 		const callResult = normalizeNonNegativeInteger(body?.callResult);
-		const callRemark = normalizeString(body?.callRemark);
 		const clientRequestId = normalizeOptionalClientRequestId(body?.clientRequestId);
 		const startedAt = normalizeOptionalIsoDate(body?.startedAt);
 		const endedAt = normalizeOptionalIsoDate(body?.endedAt);
 
-		if (customerId === null || duration === null || callResult === null || callRemark === null) {
-			return c.json({ message: '参数错误：customerId、duration、callResult、callRemark 不合法' }, 400);
+		if (customerId === null || duration === null || callResult === null) {
+			return c.json({ message: '参数错误：customerId、duration、callResult 不合法' }, 400);
+		}
+
+		const callRemark = normalizeCallRemark(body?.callRemark, callResult);
+
+		if (callRemark === undefined) {
+			return c.json({ message: '参数错误：已接听时 callRemark 必填' }, 400);
 		}
 
 		if (clientRequestId === null) {
@@ -90,12 +95,18 @@ function normalizeNonNegativeInteger(value: unknown): number | null {
 	return value;
 }
 
-function normalizeString(value: unknown): string | null {
-	if (typeof value !== 'string') {
+function normalizeCallRemark(value: unknown, callResult: number): string | null | undefined {
+	if (callResult !== 1) {
 		return null;
 	}
 
-	return value.trim();
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+
+	const normalized = value.trim();
+
+	return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeOptionalClientRequestId(value: unknown): string | undefined | null {

@@ -90,7 +90,7 @@ export async function writeCallReportBatch(db: Db, input: ReportCallWriteInput):
 			.update(customers)
 			.set({
 				status: input.callResult,
-				remark: input.callRemark,
+				remark: input.callResult === 1 ? input.callRemark : undefined,
 				type: input.callResult === 1 ? 1 : undefined,
 				updatedAt: input.now,
 			})

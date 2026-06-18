@@ -16,7 +16,7 @@ export interface ReportCallInput {
 	customerId: number;
 	duration: number;
 	callResult: number;
-	callRemark: string;
+	callRemark: string | null;
 	userId: number;
 	clientRequestId?: string;
 	startedAt?: string;
@@ -76,6 +76,7 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 	const now = new Date().toISOString();
 	const reportTime = input.endedAt ?? now;
 	const date = formatBusinessDate(new Date(reportTime));
+	const callRemark = input.callResult === 1 ? normalizeNullableString(input.callRemark) : null;
 
 	try {
 		await writeCallReportBatch(db, {
@@ -83,7 +84,7 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 			userId: input.userId,
 			duration: input.duration,
 			callResult: input.callResult,
-			callRemark: normalizeNullableString(input.callRemark),
+			callRemark,
 			now,
 			reportTime,
 			date,
@@ -156,8 +157,8 @@ export async function getMySummaryService(db: Db, input: MySummaryInput): Promis
 	};
 }
 
-function normalizeNullableString(value: string): string | null {
-	const normalized = value.trim();
+function normalizeNullableString(value: string | null): string | null {
+	const normalized = value?.trim() ?? '';
 
 	return normalized.length > 0 ? normalized : null;
 }
