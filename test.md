@@ -527,10 +527,31 @@ curl -s "$BASE_URL/api/dashboard/agent-daily?date=$DASHBOARD_DATE&page=0&pagesiz
   -s | jq
 ```
 
+员工月度呼叫统计：
+
+```bash
+DASHBOARD_MONTH=$(TZ=Asia/Shanghai date +%Y-%m)
+
+curl -s "$BASE_URL/api/dashboard/agent-monthly?month=$DASHBOARD_MONTH&page=0&pagesize=20&sort=-totalCalls" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -s | jq
+```
+
+员工查看自己的月度呼叫统计：
+
+```bash
+curl -s "$BASE_URL/api/dashboard/agent-monthly?month=$DASHBOARD_MONTH" \
+  -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
+  -s | jq
+```
+
 非法排序字段校验，预期 `400`：
 
 ```bash
 curl -i -s "$BASE_URL/api/dashboard/agent-daily?date=$DASHBOARD_DATE&sort=-passwordHash" \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+
+curl -i -s "$BASE_URL/api/dashboard/agent-monthly?month=$DASHBOARD_MONTH&sort=-passwordHash" \
   -H "authorization: Bearer $ACCESS_TOKEN"
 ```
 

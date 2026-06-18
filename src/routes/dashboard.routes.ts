@@ -13,3 +13,4 @@ export const dashboardRoutes = new Hono<DashboardRoutesEnv>();
 
 dashboardRoutes.get('/overview', requireAuth(), requireRoles([1, 2]), dashboardController.overview);
 dashboardRoutes.get('/agent-daily', requireAuth(), requireRoles([1, 2]), dashboardController.agentDaily);
+dashboardRoutes.get('/agent-monthly', requireAuth(), requireRoles([1, 2, 3]), dashboardController.agentMonthly);

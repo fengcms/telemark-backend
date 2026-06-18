@@ -188,6 +188,7 @@ curl -X POST http://localhost:8787/api/auth/login \
 | POST | /api/auth/change-password | 修改密码 | 已登录用户 |
 | GET | /api/dashboard/overview | 管理端首页核心统计 | 管理员/经理 |
 | GET | /api/dashboard/agent-daily | 员工日报排行榜 | 管理员/经理 |
+| GET | /api/dashboard/agent-monthly | 员工月度呼叫统计 | 管理员/经理/员工本人 |
 | POST | /api/batches/import | 批量导入线索 | 管理员/经理 |
 | GET | /api/batches | 批次列表 | 管理员/经理 |
 | GET | /api/batches/:id/summary | 批次质量分析 | 管理员/经理 |

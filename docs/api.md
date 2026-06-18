@@ -381,6 +381,111 @@ curl 'http://localhost:8787/api/dashboard/agent-daily?date=2026-06-13&page=0&pag
   -H "Authorization: Bearer <adminOrManagerAccessToken>"
 ```
 
+### GET /api/dashboard/agent-monthly
+
+员工月度呼叫统计。`role=1` / `role=2` 可查看员工月度列表；`role=3` 普通员工也可调用，但只能读取自己的月度数据。
+
+查询参数：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `month` | 否 | 统计月份，格式 `YYYY-MM`；不传时使用 `Asia/Shanghai` 当前业务月份 |
+| `page` | 否 | 从 `0` 开始，默认 `0` |
+| `pagesize` | 否 | 默认 `10`，最大 `100`，超过时截断为 `100` |
+| `sort` | 否 | 默认 `-totalCalls`；`sort=totalCalls` 为升序，`sort=-totalCalls` 为降序 |
+| `userId` | 否 | 按员工 ID 精确筛选；`role=3` 传入该参数也会被强制改为当前登录用户 ID |
+| `username-like` | 否 | 按用户名模糊筛选 |
+| `realName-like` | 否 | 按真实姓名模糊筛选 |
+
+排序白名单：
+
+```txt
+userId
+totalCalls
+calledCustomers
+connectedCalls
+connectedCustomers
+totalDuration
+avgDuration
+connectRate
+customerConnectRate
+firstCallTime
+lastCallTime
+```
+
+响应：
+
+```json
+{
+  "month": "2026-06",
+  "page": 0,
+  "pageSize": 20,
+  "total": 1,
+  "list": [
+    {
+      "userId": 3,
+      "username": "sales01",
+      "realName": "销售一号",
+      "role": 3,
+      "totalCalls": 188,
+      "calledCustomers": 120,
+      "connectedCalls": 56,
+      "connectedCustomers": 45,
+      "totalDuration": 3600,
+      "avgDuration": 64.29,
+      "connectRate": 0.2979,
+      "customerConnectRate": 0.375,
+      "firstCallTime": "2026-06-01T01:15:30.000Z",
+      "lastCallTime": "2026-06-17T09:42:18.000Z"
+    }
+  ]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `totalCalls` | 本月总拨打次数，来自 `agent_daily_summaries.total_calls` 月度汇总 |
+| `calledCustomers` | 本月去重拨打客户/号码数，来自 `call_logs.customer_id` 去重统计 |
+| `connectedCalls` | 本月接通次数，来自 `agent_daily_summaries.connected_calls` 月度汇总 |
+| `connectedCustomers` | 本月去重接通客户/号码数，按 `call_logs.call_result = 1` 去重统计 |
+| `connectRate` | 次数口径接通率，`connectedCalls / totalCalls`；无拨打时为 `0` |
+| `customerConnectRate` | 号码口径接通率，`connectedCustomers / calledCustomers`；无拨打号码时为 `0` |
+| `avgDuration` | 平均接通通话时长，`totalDuration / connectedCalls`；无接通时为 `0` |
+
+业务规则：
+
+- 月度次数指标来自 `agent_daily_summaries`，适合快速汇总员工工作量
+- 月度号码数指标来自 `call_logs`，按 `Asia/Shanghai` 月初到下月月初范围统计
+- `role=3` 普通员工只能看到自己的月度数据，不能通过 `userId` 查询他人
+- 默认只返回当月有日报记录的用户
+- 用户已禁用时，历史月度数据仍继续显示
+- 不返回 `password_hash`
+- 不返回 `salt`
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | `month`、`userId` 或 `sort` 参数不合法 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不在 `1`、`2`、`3` 范围内 |
+
+curl：
+
+```bash
+curl 'http://localhost:8787/api/dashboard/agent-monthly?month=2026-06&page=0&pagesize=20&sort=-totalCalls' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+员工查看自己的月度统计：
+
+```bash
+curl 'http://localhost:8787/api/dashboard/agent-monthly?month=2026-06' \
+  -H "Authorization: Bearer <employeeAccessToken>"
+```
+
 ## 线索与批次接口
 
 ### POST /api/batches/import

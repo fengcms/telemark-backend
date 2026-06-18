@@ -82,7 +82,7 @@ describe("Hello World worker", () => {
 
 		expect(duplicateInitResponse.status).toBe(409);
 		expect(await duplicateInitResponse.json()).toEqual({
-			message: "系统已存在用户，禁止重复初始化管理员",
+			message: "系统已存在超级管理员，禁止重复初始化",
 		});
 
 		const loginResponse = await SELF.fetch("https://example.com/api/auth/login", {
@@ -1069,6 +1069,144 @@ describe("Hello World worker", () => {
 		});
 		expect(managerBody.list[0].passwordHash).toBeUndefined();
 		expect(managerBody.list[0].salt).toBeUndefined();
+	});
+
+	it("serves dashboard agent monthly ranking with distinct called customers and connect rates", async () => {
+		await ensureCrmTables();
+
+		const month = "2026-06";
+		const admin = await createTestUser("dashboard_monthly_admin", 1);
+		const manager = await createTestUser("dashboard_monthly_manager", 2);
+		const employee = await createTestUser("dashboard_monthly_employee", 3);
+		const highCaller = await createTestUser("dashboard_monthly_high", 3);
+		const adminToken = await tokenFor(admin);
+		const managerToken = await tokenFor(manager);
+		const employeeToken = await tokenFor(employee);
+		const employeeCustomer = await createCustomer(admin.id, employee.id);
+		const firstCustomer = await createCustomer(admin.id, highCaller.id);
+		const secondCustomer = await createCustomer(admin.id, highCaller.id);
+		const managerCustomer = await createCustomer(admin.id, manager.id);
+
+		await insertDailySummary(highCaller.id, "2026-06-01", {
+			totalCalls: 20,
+			connectedCalls: 10,
+			totalDuration: 300,
+			firstCallTime: "2026-06-01T01:00:00.000Z",
+			lastCallTime: "2026-06-01T03:00:00.000Z",
+		});
+		await insertDailySummary(highCaller.id, "2026-06-15", {
+			totalCalls: 5,
+			connectedCalls: 1,
+			totalDuration: 30,
+			firstCallTime: "2026-06-15T02:00:00.000Z",
+			lastCallTime: "2026-06-15T04:00:00.000Z",
+		});
+		await insertDailySummary(highCaller.id, "2026-07-01", {
+			totalCalls: 99,
+			connectedCalls: 99,
+			totalDuration: 9900,
+			firstCallTime: "2026-07-01T01:00:00.000Z",
+			lastCallTime: "2026-07-01T02:00:00.000Z",
+		});
+		await insertDailySummary(manager.id, "2026-06-02", {
+			totalCalls: 3,
+			connectedCalls: 1,
+			totalDuration: 20,
+			firstCallTime: "2026-06-02T01:00:00.000Z",
+			lastCallTime: "2026-06-02T02:00:00.000Z",
+		});
+		await insertDailySummary(employee.id, "2026-06-03", {
+			totalCalls: 2,
+			connectedCalls: 1,
+			totalDuration: 60,
+			firstCallTime: "2026-06-03T01:00:00.000Z",
+			lastCallTime: "2026-06-03T02:00:00.000Z",
+		});
+		await insertCallLog(employeeCustomer.id, employee.id, "2026-06-03T01:20:00.000Z", { callResult: 1 });
+		await insertCallLog(firstCustomer.id, highCaller.id, "2026-06-01T01:20:00.000Z", { callResult: 1 });
+		await insertCallLog(firstCustomer.id, highCaller.id, "2026-06-01T01:25:00.000Z", { callResult: 2 });
+		await insertCallLog(secondCustomer.id, highCaller.id, "2026-06-15T02:20:00.000Z", { callResult: 1 });
+		await insertCallLog(secondCustomer.id, highCaller.id, "2026-07-01T02:20:00.000Z", { callResult: 1 });
+		await insertCallLog(managerCustomer.id, manager.id, "2026-06-02T01:20:00.000Z", { callResult: 1 });
+
+		const unauthenticatedResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-monthly?month=${month}`);
+		const employeeResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-monthly?month=${month}&userId=${highCaller.id}`, {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const adminResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-monthly?month=${month}&page=0&pagesize=1`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const managerResponse = await SELF.fetch(
+			`https://example.com/api/dashboard/agent-monthly?month=${month}&userId=${manager.id}&sort=-calledCustomers`,
+			{
+				headers: { authorization: `Bearer ${managerToken}` },
+			},
+		);
+		const invalidMonthResponse = await SELF.fetch("https://example.com/api/dashboard/agent-monthly?month=2026-99", {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+		const invalidSortResponse = await SELF.fetch(`https://example.com/api/dashboard/agent-monthly?month=${month}&sort=-passwordHash`, {
+			headers: { authorization: `Bearer ${adminToken}` },
+		});
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(employeeResponse.status).toBe(200);
+		expect(adminResponse.status).toBe(200);
+		expect(managerResponse.status).toBe(200);
+		expect(invalidMonthResponse.status).toBe(400);
+		expect(invalidSortResponse.status).toBe(400);
+
+		const adminBody = await adminResponse.json<{
+			month: string;
+			page: number;
+			pageSize: number;
+			total: number;
+			list: Array<{
+				userId: number;
+				totalCalls: number;
+				calledCustomers: number;
+				connectedCalls: number;
+				connectedCustomers: number;
+				totalDuration: number;
+				avgDuration: number;
+				connectRate: number;
+				customerConnectRate: number;
+				firstCallTime: string | null;
+				lastCallTime: string | null;
+			}>;
+		}>();
+		expect(adminBody.month).toBe(month);
+		expect(adminBody.page).toBe(0);
+		expect(adminBody.pageSize).toBe(1);
+		expect(adminBody.total).toBe(3);
+		expect(adminBody.list).toHaveLength(1);
+		expect(adminBody.list[0]).toMatchObject({
+			userId: highCaller.id,
+			totalCalls: 25,
+			calledCustomers: 2,
+			connectedCalls: 11,
+			connectedCustomers: 2,
+			totalDuration: 330,
+			avgDuration: 30,
+			connectRate: 0.44,
+			customerConnectRate: 1,
+			firstCallTime: "2026-06-01T01:00:00.000Z",
+			lastCallTime: "2026-06-15T04:00:00.000Z",
+		});
+
+		const managerBody = await managerResponse.json<{ total: number; list: Array<{ userId: number; calledCustomers: number }> }>();
+		expect(managerBody.total).toBe(1);
+		expect(managerBody.list[0]).toMatchObject({
+			userId: manager.id,
+			calledCustomers: 1,
+		});
+		const employeeBody = await employeeResponse.json<{ total: number; list: Array<{ userId: number; totalCalls: number; calledCustomers: number }> }>();
+		expect(employeeBody.total).toBe(1);
+		expect(employeeBody.list[0]).toMatchObject({
+			userId: employee.id,
+			totalCalls: 2,
+			calledCustomers: 1,
+		});
 	});
 
 	it("lists batches with filters, pagination, and safe sorting", async () => {
