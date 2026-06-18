@@ -367,8 +367,8 @@ function normalizeBatchUpdatePatch(value: unknown): { type?: number; status?: nu
 }
 
 function normalizeCustomerType(value: unknown): number {
-	if (value !== 0 && value !== 1) {
-		throw new CustomerMutationError(400, 'type 只能是 0 或 1');
+	if (value !== -1 && value !== 0 && value !== 1 && value !== 2) {
+		throw new CustomerMutationError(400, 'type 只能是 -1、0、1、2');
 	}
 
 	return value;

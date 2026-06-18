@@ -8,6 +8,7 @@ export interface ReportCallWriteInput {
 	duration: number;
 	callResult: number;
 	callRemark: string | null;
+	customerType: number;
 	now: string;
 	reportTime: string;
 	date: string;
@@ -91,7 +92,7 @@ export async function writeCallReportBatch(db: Db, input: ReportCallWriteInput):
 			.set({
 				status: input.callResult,
 				remark: input.callResult === 1 ? input.callRemark : undefined,
-				type: input.callResult === 1 ? 1 : undefined,
+				type: input.customerType,
 				updatedAt: input.now,
 			})
 			.where(eq(customers.id, input.customerId)),

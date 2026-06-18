@@ -62,7 +62,7 @@ LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
   -H "content-type: application/json" \
   -d "{\"username\":\"admin\",\"password\":\"$PASSWORD_HASH\"}")
 
-echo "$LOGIN_JSON" -s | jq
+echo "$LOGIN_JSON" | jq
 
 ACCESS_TOKEN=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 REFRESH_TOKEN=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['refreshToken'])")
@@ -344,10 +344,13 @@ SALES_LOGIN_JSON=$(curl -s -X POST "$BASE_URL/api/auth/login" \
   -H "content-type: application/json" \
   -d "{\"username\":\"$SALES_USERNAME\",\"password\":\"$PASSWORD_HASH\"}")
 
-echo "$SALES_LOGIN_JSON" -s | jq
+echo "$SALES_LOGIN_JSON" | jq
 
 SALES_ACCESS_TOKEN=$(echo "$SALES_LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 SALES_REFRESH_TOKEN=$(echo "$SALES_LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['refreshToken'])")
+
+echo "SALES_ACCESS_TOKEN=$SALES_ACCESS_TOKEN"
+echo "SALES_REFRESH_TOKEN=$SALES_REFRESH_TOKEN"
 ```
 
 ```bash
@@ -370,7 +373,7 @@ curl -s "$BASE_URL/api/my-customers/history?page=0&pagesize=20&sort=-updatedAt" 
 curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$SECOND_CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"作废后上报测试\"}"
+  -d "{\"customerId\":$SECOND_CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"作废后上报测试\",\"customerType\":0}"
 ```
 
 ## 12. 上报通话结果
@@ -381,7 +384,7 @@ curl -i -s -X POST "$BASE_URL/api/calls/report" \
 curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":66,\"callResult\":1,\"callRemark\":\"curl 测试：客户已接听\"}" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":66,\"callResult\":1,\"callRemark\":\"curl 测试：客户已接听\",\"customerType\":1}" \
   -s | jq
 ```
 
@@ -391,7 +394,7 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
 curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":0,\"callResult\":2}" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":0,\"callResult\":2,\"customerType\":0}" \
   -s | jq
 ```
 
@@ -405,7 +408,7 @@ CALL_ENDED_AT="$(TZ=UTC date -u -v+1M +"%Y-%m-%dT%H:%M:00.000Z" 2>/dev/null || T
 curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：幂等真实时间\",\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：幂等真实时间\",\"customerType\":1,\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
   -s | jq
 ```
 
@@ -415,7 +418,7 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
 curl -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：重复幂等请求\",\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：重复幂等请求\",\"customerType\":1,\"clientRequestId\":\"$CALL_REQUEST_ID\",\"startedAt\":\"$CALL_STARTED_AT\",\"endedAt\":\"$CALL_ENDED_AT\"}" \
   -s | jq
 ```
 
@@ -425,7 +428,7 @@ curl -s -X POST "$BASE_URL/api/calls/report" \
 curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $SALES_ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：时间倒挂\",\"startedAt\":\"2026-06-13T01:16:36.000Z\",\"endedAt\":\"2026-06-13T01:15:30.000Z\"}"
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":30,\"callResult\":1,\"callRemark\":\"curl 测试：时间倒挂\",\"customerType\":1,\"startedAt\":\"2026-06-13T01:16:36.000Z\",\"endedAt\":\"2026-06-13T01:15:30.000Z\"}"
 ```
 
 查询今日战报：
@@ -608,7 +611,7 @@ curl -i -s "$BASE_URL/api/users?page=0&pagesize=10" \
 curl -i -s -X POST "$BASE_URL/api/calls/report" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\"}"
+  -d "{\"customerId\":$CUSTOMER_ID,\"duration\":10,\"callResult\":1,\"callRemark\":\"管理员越权测试\",\"customerType\":0}"
 ```
 
 ## 17. 禁用用户与 Token 校验

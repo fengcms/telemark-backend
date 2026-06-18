@@ -11,7 +11,7 @@
 - RefreshToken 有效期：14 天，存储在 Cloudflare KV 绑定 `c_kv`
 - 角色枚举：`1` 超级管理员，`2` 经理，`3` 普通员工
 - 客户状态枚举：`0` 未拨打，`1` 已接听，`2` 无人接听，`3` 拒接，`4` 空号停机
-- 客户类型枚举：`0` 普通线索，`1` 意向客户
+- 客户类型枚举：`-1` 废线索，`0` 普通线索，`1` 意向客户，`2` 高意向客户
 
 密码规则：前端提交的 `password` 不是明文，而是 `SHA-256(明文密码)`。后端会再执行 `SHA-256(前端密码哈希 + 用户 salt)` 与数据库 `password_hash` 比对。
 
@@ -843,7 +843,7 @@ curl 'http://localhost:8787/api/customers/1' \
 
 - 只允许更新 `name`、`company`、`type`、`status`、`remark`
 - 不允许更新 `phone`、`ownerId`、`batchId`、`createdAt`、`updatedAt`、软删除字段
-- `type` 只能是 `0` 或 `1`
+- `type` 只能是 `-1`、`0`、`1`、`2`
 - `status` 只能是 `0`、`1`、`2`、`3`、`4`
 - `remark` 可为空字符串或 `null`
 - 空请求体或未知字段返回 `400`
@@ -949,7 +949,7 @@ curl -X DELETE http://localhost:8787/api/customers/1 \
 - `customerIds` 必须是非空正整数数组，最多 `500` 个
 - `patch` 只允许 `type`、`status`、`remark`
 - 批量更新不允许修改 `name`、`company`、`phone`、归属、批次和软删除字段
-- `type` 只能是 `0` 或 `1`
+- `type` 只能是 `-1`、`0`、`1`、`2`
 - `status` 只能是 `0`、`1`、`2`、`3`、`4`
 - `remark` 可为空字符串或 `null`
 - 存在不存在的客户或已作废客户时返回 `400`
@@ -1037,8 +1037,8 @@ curl 'http://localhost:8787/api/my-customers?page=0&pagesize=10&sort=-id' \
 | `sort` | 否 | 默认 `-updatedAt`；`sort=updatedAt` 升序，`sort=-updatedAt` 降序 |
 | `status` | 否 | 客户状态，支持 `1`、`2`、`3`、`4` |
 | `status-in` | 否 | 客户状态集合，例如 `status-in=1,2` |
-| `type` | 否 | 客户类型，支持 `0`、`1` |
-| `type-in` | 否 | 客户类型集合，例如 `type-in=0,1` |
+| `type` | 否 | 客户类型，支持 `-1`、`0`、`1`、`2` |
+| `type-in` | 否 | 客户类型集合，例如 `type-in=-1,0,1,2` |
 | `name-like` | 否 | 客户名称模糊查询 |
 | `phone-like` | 否 | 手机号模糊查询 |
 | `company-like` | 否 | 公司名称模糊查询 |
@@ -1317,6 +1317,7 @@ curl -X DELETE http://localhost:8787/api/users/3 \
   "duration": 66,
   "callResult": 1,
   "callRemark": "客户已接听，有明确意向",
+  "customerType": 1,
   "clientRequestId": "uuid-from-app",
   "startedAt": "2026-06-13T01:15:30.000Z",
   "endedAt": "2026-06-13T01:16:36.000Z"
@@ -1353,7 +1354,8 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 - 更新 `customers.status` 为 `callResult`
 - 当 `callResult=1` 时，更新 `customers.remark` 为 `callRemark`
 - 当 `callResult!=1` 时，`call_logs.call_remark` 保存为空，且不更新 `customers.remark`
-- 当 `callResult=1` 时，自动将 `customers.type` 改为 `1`
+- 更新 `customers.type` 为请求中的 `customerType`
+- 后端不会因为 `callResult=1` 自动把客户升级为意向客户，线索类型必须由员工手动选择
 - 按 `(user_id, date)` upsert `agent_daily_summaries`
 - 新日报：`first_call_time` 与 `last_call_time` 均为当前时间，`total_calls=1`
 - 已有日报：`last_call_time` 更新为当前时间，`total_calls` 自增
@@ -1377,6 +1379,7 @@ curl -X DELETE http://localhost:8787/api/users/3 \
 
 - 当 `callResult=1`（已接听）时，`callRemark` 必填，且去除首尾空格后不能为空
 - 当 `callResult!=1` 时，`callRemark` 不需要传；即使传入，后端也会忽略并保存为空
+- `customerType` 必填，只能是 `-1`、`0`、`1`、`2`
 - `clientRequestId` 如传入，必须是非空字符串，最长 `128`
 - `startedAt` / `endedAt` 如传入，必须是合法 ISO 字符串
 - `endedAt` 不能早于 `startedAt`
@@ -1391,7 +1394,7 @@ curl：
 curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
-  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向","clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
+  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"客户已接听，有明确意向","customerType":1,"clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
 ```
 
 非已接听，不需要传 `callRemark`：
@@ -1400,7 +1403,7 @@ curl -X POST http://localhost:8787/api/calls/report \
 curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
-  -d '{"customerId":1,"duration":0,"callResult":2,"clientRequestId":"uuid-from-app-no-answer","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:15:30.000Z"}'
+  -d '{"customerId":1,"duration":0,"callResult":2,"customerType":0,"clientRequestId":"uuid-from-app-no-answer","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:15:30.000Z"}'
 ```
 
 重复提交同一个 `clientRequestId`：
@@ -1409,7 +1412,7 @@ curl -X POST http://localhost:8787/api/calls/report \
 curl -X POST http://localhost:8787/api/calls/report \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer <accessToken>" \
-  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"重复提交测试","clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
+  -d '{"customerId":1,"duration":66,"callResult":1,"callRemark":"重复提交测试","customerType":1,"clientRequestId":"uuid-from-app","startedAt":"2026-06-13T01:15:30.000Z","endedAt":"2026-06-13T01:16:36.000Z"}'
 ```
 
 ### GET /api/my-summary

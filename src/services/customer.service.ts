@@ -523,7 +523,7 @@ function parseOptionalType(value: string | string[] | undefined): number | undef
 
 	const parsed = Number(rawValue);
 
-	if (parsed !== 0 && parsed !== 1) {
+	if (!isValidCustomerType(parsed)) {
 		throw new CustomerHistoryQueryError('type 参数不合法');
 	}
 
@@ -537,11 +537,15 @@ function parseOptionalTypeIn(value: string | string[] | undefined): number[] | u
 		return undefined;
 	}
 
-	if (values.some((item) => item !== 0 && item !== 1)) {
+	if (values.some((item) => !isValidCustomerType(item))) {
 		throw new CustomerHistoryQueryError('type-in 参数不合法');
 	}
 
 	return values;
+}
+
+function isValidCustomerType(value: number): boolean {
+	return value === -1 || value === 0 || value === 1 || value === 2;
 }
 
 function parseIntegerList(value: string | string[] | undefined): number[] | undefined {

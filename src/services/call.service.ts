@@ -17,6 +17,7 @@ export interface ReportCallInput {
 	duration: number;
 	callResult: number;
 	callRemark: string | null;
+	customerType: number;
 	userId: number;
 	clientRequestId?: string;
 	startedAt?: string;
@@ -85,6 +86,7 @@ export async function reportCallService(db: Db, input: ReportCallInput): Promise
 			duration: input.duration,
 			callResult: input.callResult,
 			callRemark,
+			customerType: input.customerType,
 			now,
 			reportTime,
 			date,

@@ -72,7 +72,7 @@ export const customers = sqliteTable(
 		name: text('name'),
 		company: text('company'),
 
-		// 0: 普通线索, 1: 意向客户。
+		// -1: 废线索, 0: 普通线索, 1: 意向客户, 2: 高意向客户。
 		type: integer('type').notNull().default(0),
 
 		// 0: 未拨打, 1: 已接听, 2: 无人接听, 3: 拒接, 4: 空号停机。

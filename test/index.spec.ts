@@ -330,6 +330,7 @@ describe("Hello World worker", () => {
 					duration: 66,
 					callResult: 1,
 					callRemark: "客户已接听，意向明确",
+					customerType: 0,
 				}),
 			},
 		);
@@ -349,7 +350,7 @@ describe("Hello World worker", () => {
 
 		expect(updatedCustomer).toEqual({
 			status: 1,
-			type: 1,
+			type: 0,
 			remark: "客户已接听，意向明确",
 		});
 
@@ -731,6 +732,7 @@ describe("Hello World worker", () => {
 			duration: 66,
 			callResult: 1,
 			callRemark: "首次幂等通话",
+			customerType: 0,
 			clientRequestId: "same-request-id",
 			startedAt: "2026-06-13T01:15:30.000Z",
 			endedAt: "2026-06-13T01:16:36.000Z",
@@ -740,6 +742,7 @@ describe("Hello World worker", () => {
 			duration: 10,
 			callResult: 2,
 			callRemark: "重复请求不应生效",
+			customerType: 2,
 			clientRequestId: "same-request-id",
 			startedAt: "2026-06-13T01:15:30.000Z",
 			endedAt: "2026-06-13T01:16:36.000Z",
@@ -749,6 +752,7 @@ describe("Hello World worker", () => {
 			duration: 5,
 			callResult: 1,
 			callRemark: "不同用户同 request id",
+			customerType: 2,
 			clientRequestId: "same-request-id",
 			startedAt: "2026-06-13T01:20:00.000Z",
 			endedAt: "2026-06-13T01:20:05.000Z",
@@ -758,6 +762,7 @@ describe("Hello World worker", () => {
 			duration: 30,
 			callResult: 1,
 			callRemark: "离线补传更早通话",
+			customerType: 1,
 			clientRequestId: "early-request-id",
 			startedAt: "2026-06-13T00:59:30.000Z",
 			endedAt: "2026-06-13T01:00:00.000Z",
@@ -768,6 +773,7 @@ describe("Hello World worker", () => {
 			duration: 0,
 			callResult: 2,
 			callRemark: "延迟补传更晚通话",
+			customerType: -1,
 			clientRequestId: "late-request-id",
 			startedAt: "2026-06-13T03:00:00.000Z",
 			endedAt: "2026-06-13T03:01:00.000Z",
@@ -776,6 +782,7 @@ describe("Hello World worker", () => {
 			customerId: fourthCustomer.id,
 			duration: 0,
 			callResult: 3,
+			customerType: 0,
 			clientRequestId: "no-remark-request-id",
 			startedAt: "2026-06-13T03:10:00.000Z",
 			endedAt: "2026-06-13T03:10:00.000Z",
@@ -812,15 +819,16 @@ describe("Hello World worker", () => {
 			.first<{ status: number; type: number; remark: string }>();
 		expect(firstCustomerAfterDuplicate).toEqual({
 			status: 1,
-			type: 1,
+			type: 0,
 			remark: "首次幂等通话",
 		});
 
-		const nonConnectedCustomer = await env.DB.prepare("SELECT status, remark FROM customers WHERE id = ?")
+		const nonConnectedCustomer = await env.DB.prepare("SELECT status, type, remark FROM customers WHERE id = ?")
 			.bind(thirdCustomer.id)
-			.first<{ status: number; remark: string | null }>();
+			.first<{ status: number; type: number; remark: string | null }>();
 		expect(nonConnectedCustomer).toEqual({
 			status: 2,
+			type: -1,
 			remark: "需要保留的客户备注",
 		});
 
@@ -886,6 +894,7 @@ describe("Hello World worker", () => {
 					duration: 1,
 					callResult: 1,
 					callRemark: "非法 startedAt",
+					customerType: 0,
 					startedAt: "not-a-date",
 				})
 			).status,
@@ -897,6 +906,7 @@ describe("Hello World worker", () => {
 					duration: 1,
 					callResult: 1,
 					callRemark: "非法 endedAt",
+					customerType: 0,
 					endedAt: "not-a-date",
 				})
 			).status,
@@ -908,21 +918,26 @@ describe("Hello World worker", () => {
 					duration: 1,
 					callResult: 1,
 					callRemark: "时间倒挂",
+					customerType: 0,
 					startedAt: "2026-06-13T01:16:36.000Z",
 					endedAt: "2026-06-13T01:15:30.000Z",
 				})
 			).status,
 		).toBe(400);
-		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1 })).status).toBe(400);
-		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "   " })).status).toBe(400);
-		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "空幂等", clientRequestId: "" })).status).toBe(
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, customerType: 0 })).status).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "   ", customerType: 0 })).status).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "非法客户类型", customerType: 3 })).status).toBe(
+			400,
+		);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "缺少客户类型" })).status).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "空幂等", customerType: 0, clientRequestId: "" })).status).toBe(
 			400,
 		);
 		expect(
-			(await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "超长幂等", clientRequestId: "x".repeat(129) }))
+			(await reportCall(employeeToken, { customerId: firstCustomer.id, duration: 1, callResult: 1, callRemark: "超长幂等", customerType: 0, clientRequestId: "x".repeat(129) }))
 				.status,
 		).toBe(400);
-		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: -1, callResult: 1, callRemark: "非法时长" })).status).toBe(400);
+		expect((await reportCall(employeeToken, { customerId: firstCustomer.id, duration: -1, callResult: 1, callRemark: "非法时长", customerType: 0 })).status).toBe(400);
 	});
 
 	it("serves dashboard overview only to admins and managers with correct metrics", async () => {
@@ -1698,7 +1713,7 @@ describe("Hello World worker", () => {
 		await softDeleteCustomer(deletedCustomer.id, admin.id);
 
 		const employeeResponse = await patchCustomer(employeeToken, customer.id, { name: "越权编辑" });
-		const invalidTypeResponse = await patchCustomer(adminToken, customer.id, { type: 2 });
+		const invalidTypeResponse = await patchCustomer(adminToken, customer.id, { type: 3 });
 		const invalidStatusResponse = await patchCustomer(adminToken, customer.id, { status: 9 });
 		const emptyBodyResponse = await patchCustomer(adminToken, customer.id, {});
 		const unknownFieldResponse = await patchCustomer(adminToken, customer.id, { deleteReason: "不允许" });
@@ -1709,9 +1724,9 @@ describe("Hello World worker", () => {
 		const managerResponse = await patchCustomer(managerToken, managerCustomer.id, {
 			name: "客户A",
 			company: "测试公司A",
-			type: 1,
+			type: 2,
 			status: 1,
-			remark: "后台人工修正",
+			remark: "后台人工修正为高意向",
 		});
 		const adminResponse = await patchCustomer(adminToken, customer.id, { remark: null });
 
@@ -1731,9 +1746,9 @@ describe("Hello World worker", () => {
 		expect(managerBody).toMatchObject({
 			name: "客户A",
 			company: "测试公司A",
-			type: 1,
+			type: 2,
 			status: 1,
-			remark: "后台人工修正",
+			remark: "后台人工修正为高意向",
 		});
 		const after = await getCustomerUpdatedAt(customer.id);
 		expect(after).not.toBe(before);
@@ -1831,6 +1846,7 @@ describe("Hello World worker", () => {
 				duration: 30,
 				callResult: 1,
 				callRemark: "作废后上报",
+				customerType: 0,
 			}),
 		});
 		const logCounts = await env.DB.prepare(
@@ -1870,7 +1886,7 @@ describe("Hello World worker", () => {
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: {} })).status).toBe(400);
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { ownerId: manager.id } })).status).toBe(400);
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { name: "不允许批量改名" } })).status).toBe(400);
-		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { type: 2 } })).status).toBe(400);
+		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { type: 3 } })).status).toBe(400);
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [firstCustomer.id], patch: { status: 9 } })).status).toBe(400);
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [999999999], patch: { status: 1 } })).status).toBe(400);
 		expect((await batchUpdateCustomers(adminToken, { customerIds: [deletedCustomer.id], patch: { status: 1 } })).status).toBe(400);
@@ -1878,9 +1894,9 @@ describe("Hello World worker", () => {
 		const managerResponse = await batchUpdateCustomers(managerToken, {
 			customerIds: [firstCustomer.id, secondCustomer.id],
 			patch: {
-				type: 1,
+				type: 2,
 				status: 1,
-				remark: "批量标记意向",
+				remark: "批量标记高意向",
 			},
 		});
 
@@ -1891,8 +1907,8 @@ describe("Hello World worker", () => {
 			.bind(firstCustomer.id, secondCustomer.id)
 			.all<{ id: number; type: number; status: number; remark: string }>();
 		expect(rows.results).toEqual([
-			{ id: firstCustomer.id, type: 1, status: 1, remark: "批量标记意向" },
-			{ id: secondCustomer.id, type: 1, status: 1, remark: "批量标记意向" },
+			{ id: firstCustomer.id, type: 2, status: 1, remark: "批量标记高意向" },
+			{ id: secondCustomer.id, type: 2, status: 1, remark: "批量标记高意向" },
 		]);
 	});
 
@@ -1924,7 +1940,7 @@ describe("Hello World worker", () => {
 			name: "历史客户甲",
 			company: "历史公司甲",
 			status: 1,
-			type: 1,
+			type: 2,
 			remark: "客户有意向，下周一回电",
 			updatedAt: "2026-06-13T08:00:00.000Z",
 		});
@@ -1948,7 +1964,7 @@ describe("Hello World worker", () => {
 			name: "历史客户丁",
 			company: "历史公司丁",
 			status: 4,
-			type: 0,
+			type: -1,
 			remark: "空号停机",
 			updatedAt: "2026-06-13T06:00:00.000Z",
 		});
@@ -2003,7 +2019,10 @@ describe("Hello World worker", () => {
 		const statusInResponse = await SELF.fetch("https://example.com/api/my-customers/history?status-in=2,3", {
 			headers: { authorization: `Bearer ${employeeToken}` },
 		});
-		const typeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=1", {
+		const typeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=2", {
+			headers: { authorization: `Bearer ${employeeToken}` },
+		});
+		const typeInResponse = await SELF.fetch("https://example.com/api/my-customers/history?type-in=-1,2", {
 			headers: { authorization: `Bearer ${employeeToken}` },
 		});
 		const nameResponse = await SELF.fetch("https://example.com/api/my-customers/history?name-like=客户甲", {
@@ -2021,7 +2040,7 @@ describe("Hello World worker", () => {
 		const invalidStatusResponse = await SELF.fetch("https://example.com/api/my-customers/history?status=0", {
 			headers: { authorization: `Bearer ${employeeToken}` },
 		});
-		const invalidTypeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=2", {
+		const invalidTypeResponse = await SELF.fetch("https://example.com/api/my-customers/history?type=3", {
 			headers: { authorization: `Bearer ${employeeToken}` },
 		});
 		const invalidPageResponse = await SELF.fetch("https://example.com/api/my-customers/history?page=-1", {
@@ -2043,6 +2062,7 @@ describe("Hello World worker", () => {
 		expect(forbiddenUserResponse.status).toBe(400);
 		expect(invalidSortResponse.status).toBe(400);
 		expect(invalidStatusResponse.status).toBe(400);
+		expect(typeInResponse.status).toBe(200);
 		expect(invalidTypeResponse.status).toBe(400);
 		expect(invalidPageResponse.status).toBe(400);
 
@@ -2074,7 +2094,11 @@ describe("Hello World worker", () => {
 			missedCustomer.id,
 		]);
 		expect((await typeResponse.json<{ total: number; list: Array<{ id: number; type: number }> }>()).list).toEqual([
-			expect.objectContaining({ id: connectedCustomer.id, type: 1 }),
+			expect.objectContaining({ id: connectedCustomer.id, type: 2 }),
+		]);
+		expect((await typeInResponse.json<{ total: number; list: Array<{ id: number }> }>()).list.map((item) => item.id)).toEqual([
+			connectedCustomer.id,
+			invalidCustomer.id,
 		]);
 		expect((await nameResponse.json<{ total: number; list: Array<{ id: number }> }>()).list).toEqual([
 			expect.objectContaining({ id: connectedCustomer.id }),
@@ -2264,7 +2288,7 @@ async function createBatchCustomer(
 	return customer;
 }
 
-async function setCustomerType(customerId: number, type: 0 | 1): Promise<void> {
+async function setCustomerType(customerId: number, type: -1 | 0 | 1 | 2): Promise<void> {
 	await env.DB.prepare("UPDATE customers SET type = ? WHERE id = ?").bind(type, customerId).run();
 }
 
@@ -2448,6 +2472,7 @@ async function reportCallStatus(token: string, customerId: number): Promise<numb
 			duration: 30,
 			callResult: 1,
 			callRemark: "安全测试通话",
+			customerType: 0,
 		}),
 	});
 
@@ -2461,6 +2486,7 @@ async function reportCall(
 		duration: number;
 		callResult: number;
 		callRemark?: string;
+		customerType?: number;
 		clientRequestId?: string;
 		startedAt?: string;
 		endedAt?: string;

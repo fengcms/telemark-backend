@@ -15,6 +15,7 @@ interface ReportCallRequestBody {
 	duration?: unknown;
 	callResult?: unknown;
 	callRemark?: unknown;
+	customerType?: unknown;
 	clientRequestId?: unknown;
 	startedAt?: unknown;
 	endedAt?: unknown;
@@ -26,12 +27,17 @@ export const callController = {
 		const customerId = normalizePositiveInteger(body?.customerId);
 		const duration = normalizeNonNegativeInteger(body?.duration);
 		const callResult = normalizeNonNegativeInteger(body?.callResult);
+		const customerType = normalizeCustomerType(body?.customerType);
 		const clientRequestId = normalizeOptionalClientRequestId(body?.clientRequestId);
 		const startedAt = normalizeOptionalIsoDate(body?.startedAt);
 		const endedAt = normalizeOptionalIsoDate(body?.endedAt);
 
 		if (customerId === null || duration === null || callResult === null) {
 			return c.json({ message: '参数错误：customerId、duration、callResult 不合法' }, 400);
+		}
+
+		if (customerType === null) {
+			return c.json({ message: '参数错误：customerType 只能是 -1、0、1、2' }, 400);
 		}
 
 		const callRemark = normalizeCallRemark(body?.callRemark, callResult);
@@ -57,6 +63,7 @@ export const callController = {
 			duration,
 			callResult,
 			callRemark,
+			customerType,
 			userId: c.get('currentUser').id,
 			clientRequestId: clientRequestId ?? undefined,
 			startedAt: startedAt ?? undefined,
@@ -89,6 +96,14 @@ function normalizePositiveInteger(value: unknown): number | null {
 
 function normalizeNonNegativeInteger(value: unknown): number | null {
 	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+		return null;
+	}
+
+	return value;
+}
+
+function normalizeCustomerType(value: unknown): number | null {
+	if (value !== -1 && value !== 0 && value !== 1 && value !== 2) {
 		return null;
 	}
 
