@@ -1538,6 +1538,8 @@ describe("Hello World worker", () => {
 		const disabledToken = await tokenFor(disabledManager);
 		const firstCustomer = await createCustomer(admin.id, employee.id);
 		const secondCustomer = await createCustomer(admin.id, manager.id);
+		const escapedPhone = `1390002%_\\${crypto.randomUUID().replaceAll("-", "").slice(0, 3)}`;
+		await env.DB.prepare("UPDATE customers SET phone = ? WHERE id = ?").bind(escapedPhone, firstCustomer.id).run();
 
 		await setUserStatus(disabledManager.id, 0);
 		const oldLog = await insertCallLog(firstCustomer.id, employee.id, "2026-06-13T10:00:00.000Z", {
@@ -1575,6 +1577,18 @@ describe("Hello World worker", () => {
 		const invalidSortResponse = await SELF.fetch("https://example.com/api/call-logs?sort=-passwordHash", {
 			headers: { authorization: `Bearer ${adminToken}` },
 		});
+		const phoneResponse = await SELF.fetch(
+			`https://example.com/api/call-logs?phone-like=${encodeURIComponent("1390002")}&userId=${employee.id}&callResult=1&page=0&pagesize=1&sort=-id`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const escapedPhoneResponse = await SELF.fetch(
+			`https://example.com/api/call-logs?phone-like=${encodeURIComponent("%_\\")}&page=0&pagesize=20`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
+		const injectionTextResponse = await SELF.fetch(
+			`https://example.com/api/call-logs?phone-like=${encodeURIComponent("' OR 1=1 --")}&page=0&pagesize=20`,
+			{ headers: { authorization: `Bearer ${adminToken}` } },
+		);
 
 		expect(unauthenticatedResponse.status).toBe(401);
 		expect(disabledResponse.status).toBe(401);
@@ -1582,6 +1596,9 @@ describe("Hello World worker", () => {
 		expect(adminResponse.status).toBe(200);
 		expect(managerResponse.status).toBe(200);
 		expect(invalidSortResponse.status).toBe(400);
+		expect(phoneResponse.status).toBe(200);
+		expect(escapedPhoneResponse.status).toBe(200);
+		expect(injectionTextResponse.status).toBe(200);
 
 		const adminBody = await adminResponse.json<{
 			page: number;
@@ -1621,6 +1638,18 @@ describe("Hello World worker", () => {
 
 		const sortBody = await defaultSortResponse.json<{ list: Array<{ id: number }> }>();
 		expect(sortBody.list.map((item) => item.id)).toEqual([newLog.id, oldLog.id]);
+
+		const phoneBody = await phoneResponse.json<{ total: number; list: Array<{ id: number; customerPhone: string }> }>();
+		expect(phoneBody.total).toBe(1);
+		expect(phoneBody.list).toHaveLength(1);
+		expect(phoneBody.list[0]).toMatchObject({ id: oldLog.id, customerPhone: escapedPhone });
+
+		const escapedPhoneBody = await escapedPhoneResponse.json<{ total: number; list: Array<{ id: number; customerPhone: string }> }>();
+		expect(escapedPhoneBody.total).toBe(1);
+		expect(escapedPhoneBody.list[0]).toMatchObject({ id: oldLog.id, customerPhone: escapedPhone });
+
+		const injectionTextBody = await injectionTextResponse.json<{ total: number; list: unknown[] }>();
+		expect(injectionTextBody).toMatchObject({ total: 0, list: [] });
 	});
 
 	it("serves customer detail only to admins and managers without leaking user secrets", async () => {

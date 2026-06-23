@@ -1562,11 +1562,12 @@ curl 'http://localhost:8787/api/assignment-logs?page=0&pagesize=20&sort=-id&cust
 | `sort` | 否 | 默认 `-id`；`sort=id` 为升序，`sort=-id` 为降序 |
 | `userId` | 否 | 按拨打员工 ID 筛选 |
 | `customerId` | 否 | 按客户 ID 筛选 |
+| `phone-like` | 否 | 按客户手机号模糊查询；`%`、`_`、`\` 按普通文本安全转义 |
 | `callResult` | 否 | 通话结果，兼容当前枚举 `0` 到 `4` |
 | `startDate` | 否 | 起始日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
 | `endDate` | 否 | 结束日期，格式 `YYYY-MM-DD`，按 `created_at` 日期筛选 |
 
-暂不支持：`phone-like`、`customerName-like`、`username-like`、`realName-like`。
+暂不支持：`customerName-like`、`username-like`、`realName-like`。
 
 排序字段白名单：
 
@@ -1629,6 +1630,13 @@ curl：
 
 ```bash
 curl 'http://localhost:8787/api/call-logs?page=0&pagesize=20&sort=-id&userId=3&callResult=1&startDate=2026-06-01&endDate=2026-06-13' \
+  -H "Authorization: Bearer <adminOrManagerAccessToken>"
+```
+
+按客户手机号模糊查询：
+
+```bash
+curl 'http://localhost:8787/api/call-logs?phone-like=1390002&page=0&pagesize=20&sort=-id' \
   -H "Authorization: Bearer <adminOrManagerAccessToken>"
 ```
 

@@ -13,6 +13,7 @@ export interface CallLogFilters {
 	sortDirection: 'asc' | 'desc';
 	userId?: number;
 	customerId?: number;
+	phoneLike?: string;
 	callResult?: number;
 	startDate?: string;
 	endDate?: string;
@@ -95,6 +96,10 @@ function buildWhereClause(filters: CallLogFilters): SQL | undefined {
 		conditions.push(eq(callLogs.customerId, filters.customerId));
 	}
 
+	if (filters.phoneLike) {
+		conditions.push(sql`${customers.phone} LIKE ${`%${escapeLikeValue(filters.phoneLike)}%`} ESCAPE '\\'`);
+	}
+
 	if (filters.callResult !== undefined) {
 		conditions.push(eq(callLogs.callResult, filters.callResult));
 	}
@@ -108,4 +113,8 @@ function buildWhereClause(filters: CallLogFilters): SQL | undefined {
 	}
 
 	return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+function escapeLikeValue(value: string): string {
+	return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 }

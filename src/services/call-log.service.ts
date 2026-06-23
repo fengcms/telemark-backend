@@ -46,6 +46,7 @@ export async function listCallLogsService(db: Db, query: Record<string, string |
 		sortDirection: sort.direction,
 		userId: parseOptionalPositiveInteger(query.userId, 'userId'),
 		customerId: parseOptionalPositiveInteger(query.customerId, 'customerId'),
+		phoneLike: parseOptionalLike(query['phone-like']),
 		callResult: parseOptionalCallResult(query.callResult),
 		startDate: parseOptionalDate(query.startDate, 'startDate'),
 		endDate: parseOptionalDate(query.endDate, 'endDate'),
@@ -76,6 +77,12 @@ function toCallLogItem(row: CallLogRow): CallLogItem {
 		endedAt: row.endedAt,
 		createdAt: row.createdAt,
 	};
+}
+
+function parseOptionalLike(value: string | string[] | undefined): string | undefined {
+	const normalized = getFirstQueryValue(value).trim();
+
+	return normalized.length > 0 ? normalized : undefined;
 }
 
 function parseOptionalCallResult(value: string | string[] | undefined): number | undefined {
