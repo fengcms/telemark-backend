@@ -9,11 +9,13 @@ import {
 	CustomerMutationError,
 	deleteCustomerService,
 	getCustomerDetailService,
+	ImportBatchError,
 	type ImportCustomerInput,
 	importBatchService,
 	listCustomersService,
 	listMyCustomerHistoryService,
 	listMyCustomersService,
+	MAX_IMPORT_CUSTOMERS,
 	parseCustomerId,
 	type UpdateCustomerInput,
 	updateCustomerService,
@@ -80,21 +82,34 @@ export const customerController = {
 		const name = normalizeRequiredString(body?.name);
 		const source = normalizeRequiredString(body?.source);
 		const cost = normalizeNonNegativeNumber(body?.cost);
-		const customerInputs = normalizeCustomerInputs(body?.customers);
+		const rawCustomers = Array.isArray(body?.customers) ? body.customers : [];
+		const customerInputs = normalizeCustomerInputs(rawCustomers);
+		if (rawCustomers.length > MAX_IMPORT_CUSTOMERS) {
+			return c.json({ message: `单次最多导入 ${MAX_IMPORT_CUSTOMERS} 条客户线索` }, 400);
+		}
 
 		if (!name || !source || cost === null || customerInputs.length === 0) {
 			return c.json({ message: '参数错误：name、source、cost、customers 不能为空' }, 400);
 		}
 
-		const result = await importBatchService(createDb(c.env.DB), {
-			name,
-			source,
-			cost,
-			customers: customerInputs,
-			creatorId: c.get('currentUser').id,
-		});
+		try {
+			const result = await importBatchService(createDb(c.env.DB), {
+				name,
+				source,
+				cost,
+				customers: customerInputs,
+				inputCount: rawCustomers.length,
+				creatorId: c.get('currentUser').id,
+			});
 
-		return c.json(result);
+			return c.json(result);
+		} catch (error) {
+			if (error instanceof ImportBatchError) {
+				return c.json({ message: error.message }, error.status);
+			}
+
+			throw error;
+		}
 	},
 
 	async assignCustomers(c: CustomerContext) {

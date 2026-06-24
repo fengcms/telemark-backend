@@ -490,7 +490,7 @@ curl 'http://localhost:8787/api/dashboard/agent-monthly?month=2026-06' \
 
 ### POST /api/batches/import
 
-批量导入客户线索。仅 `role=1` 或 `role=2` 可调用。
+批量导入客户线索。仅 `role=1` 或 `role=2` 可调用，单次最多提交 `1000` 条。
 
 请求：
 
@@ -519,8 +519,19 @@ curl 'http://localhost:8787/api/dashboard/agent-monthly?month=2026-06' \
 业务规则：
 
 - 插入批次记录到 `batches`，记录 `creator_id`
-- 导入前按 `phone` 查重，重复号码跳过
-- 新线索写入 `customers`，并绑定 `batch_id`
+- 请求内先按规范化后的 `phone` 去重，数据库已有号码通过唯一约束安全跳过
+- 客户数据使用多行 SQL 分组写入，并通过一个 D1 `batch()` 事务提交；客户写入失败时不会保留部分客户
+- 批量写入失败时清理本次新建的空批次
+- 新线索写入 `customers` 并绑定 `batch_id`
+- `importedCount` 是本批次实际写入数量，`skippedDuplicateCount` 是提交数量减去实际写入数量
+
+错误响应：
+
+| 状态码 | 场景 |
+|--------|------|
+| 400 | 必填参数为空，或 `customers` 超过 `1000` 条 |
+| 401 | 未登录、AccessToken 无效或用户已禁用 |
+| 403 | 角色不是管理员或经理 |
 
 curl：
 

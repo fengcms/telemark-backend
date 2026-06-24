@@ -5,16 +5,18 @@ import {
 	batchUpdateCustomersByIds,
 	type CustomerBasicRow,
 	type CustomerDetailRow,
+	countCustomersByBatchId,
 	createBatch,
+	deleteBatchById,
 	findActiveCustomersByIds,
 	findActiveUserById,
 	findCustomerBasicById,
-	findCustomerByPhone,
 	findCustomerDeleteStateById,
 	findCustomerDetailById,
 	findCustomersByIds,
 	findMyCustomerHistory,
-	insertCustomer,
+	type InsertCustomerInput,
+	insertCustomersBatch,
 	type MyCustomerHistorySortField,
 	softDeleteCustomerById,
 	updateCustomerById,
@@ -29,6 +31,7 @@ const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_MY_CUSTOMER_HISTORY_SORT = '-updatedAt';
 const MY_CUSTOMER_HISTORY_SORT_FIELDS = ['id', 'status', 'type', 'createdAt', 'updatedAt'] as const;
+export const MAX_IMPORT_CUSTOMERS = 1000;
 
 export interface Actor {
 	id: number;
@@ -47,6 +50,7 @@ export interface ImportBatchInput {
 	source: string;
 	cost: number;
 	customers: ImportCustomerInput[];
+	inputCount: number;
 	creatorId: number;
 }
 
@@ -117,6 +121,10 @@ export class AssignCustomersError extends Error {
 		super(message);
 		this.status = status;
 	}
+}
+
+export class ImportBatchError extends Error {
+	readonly status = 400;
 }
 
 export class CustomerMutationError extends Error {
@@ -199,48 +207,50 @@ export async function listMyCustomerHistoryService(
 }
 
 export async function importBatchService(db: Db, input: ImportBatchInput): Promise<ImportBatchResult> {
-	const batch = await createBatch(db, {
-		name: input.name,
-		source: input.source,
-		cost: input.cost,
-		totalCount: input.customers.length,
-		creatorId: input.creatorId,
-	});
+	if (input.inputCount > MAX_IMPORT_CUSTOMERS) {
+		throw new ImportBatchError(`单次最多导入 ${MAX_IMPORT_CUSTOMERS} 条客户线索`);
+	}
 
-	let importedCount = 0;
-	let skippedDuplicateCount = 0;
-	const seenPhones = new Set<string>();
+	const uniqueCustomers = new Map<string, Omit<InsertCustomerInput, 'batchId'>>();
 
 	for (const customer of input.customers) {
 		const phone = normalizePhone(customer.phone);
 
-		if (!phone || seenPhones.has(phone)) {
-			skippedDuplicateCount += 1;
+		if (!phone || uniqueCustomers.has(phone)) {
 			continue;
 		}
 
-		seenPhones.add(phone);
-
-		const existing = await findCustomerByPhone(db, phone);
-
-		if (existing) {
-			skippedDuplicateCount += 1;
-			continue;
-		}
-
-		await insertCustomer(db, {
+		uniqueCustomers.set(phone, {
 			phone,
 			name: normalizeNullableString(customer.name),
 			company: normalizeNullableString(customer.company),
-			batchId: batch.id,
 		});
-		importedCount += 1;
 	}
+
+	const batch = await createBatch(db, {
+		name: input.name,
+		source: input.source,
+		cost: input.cost,
+		totalCount: input.inputCount,
+		creatorId: input.creatorId,
+	});
+
+	try {
+		await insertCustomersBatch(
+			db,
+			Array.from(uniqueCustomers.values(), (customer) => ({ ...customer, batchId: batch.id })),
+		);
+	} catch (error) {
+		await deleteBatchById(db, batch.id).catch(() => undefined);
+		throw error;
+	}
+
+	const importedCount = await countCustomersByBatchId(db, batch.id);
 
 	return {
 		batchId: batch.id,
 		importedCount,
-		skippedDuplicateCount,
+		skippedDuplicateCount: input.inputCount - importedCount,
 	};
 }
 

@@ -131,6 +131,8 @@ curl -s "$BASE_URL/api/users?username-like=$SALES_USERNAME&page=0&pagesize=10" \
 
 ## 6. 导入客户批次
 
+接口单次最多接收 `1000` 条客户线索。请求内重复号码和数据库已有号码会计入 `skippedDuplicateCount`；客户批量写入使用同一个 D1 事务，不会只提交前半部分。
+
 ```bash
 BATCH_JSON=$(curl -s -X POST "$BASE_URL/api/batches/import" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

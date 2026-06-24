@@ -223,6 +223,22 @@ describe("Hello World worker", () => {
 		expect(importBody.importedCount).toBe(1);
 		expect(importBody.skippedDuplicateCount).toBe(1);
 
+		const repeatedImportResponse = await SELF.fetch("https://example.com/api/batches/import", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${accessToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				name: "重复号码批次",
+				source: "curl-test",
+				cost: 0,
+				customers: [{ phone, name: "数据库已存在客户", company: "公司A" }],
+			}),
+		});
+		expect(repeatedImportResponse.status).toBe(200);
+		expect(await repeatedImportResponse.json()).toMatchObject({ importedCount: 0, skippedDuplicateCount: 1 });
+
 		const listResponse = await SELF.fetch(
 			`https://example.com/api/customers?phone-like=${phone.slice(0, 6)}&sort=-id&page=0&pagesize=10`,
 			{
@@ -476,6 +492,63 @@ describe("Hello World worker", () => {
 		expect(phoneIds).not.toContain(plainCustomer.id);
 		expect(companyIds).toContain(percentCustomer.id);
 		expect(companyIds).not.toContain(plainCustomer.id);
+	});
+
+	it("bulk imports 600 customers atomically and rejects oversized imports", async () => {
+		await ensureCrmTables();
+
+		const manager = await createTestUser("bulk_import_manager", 2);
+		const managerToken = await tokenFor(manager);
+		const phonePrefix = crypto.randomUUID().replaceAll("-", "").slice(0, 7);
+		const customers = Array.from({ length: 600 }, (_, index) => ({
+			phone: `18${phonePrefix}${String(index).padStart(4, "0")}`,
+			name: `批量客户${index}`,
+			company: "批量导入测试公司",
+		}));
+
+		const response = await SELF.fetch("https://example.com/api/batches/import", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${managerToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				name: `600条批量导入_${phonePrefix}`,
+				source: "vitest",
+				cost: 600,
+				customers,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const body = await response.json<{ batchId: number; importedCount: number; skippedDuplicateCount: number }>();
+		expect(body).toMatchObject({ importedCount: 600, skippedDuplicateCount: 0 });
+
+		const stored = await env.DB.prepare("SELECT COUNT(*) AS total FROM customers WHERE batch_id = ?")
+			.bind(body.batchId)
+			.first<{ total: number }>();
+		const batch = await env.DB.prepare("SELECT total_count AS totalCount FROM batches WHERE id = ?")
+			.bind(body.batchId)
+			.first<{ totalCount: number }>();
+		expect(stored?.total).toBe(600);
+		expect(batch?.totalCount).toBe(600);
+
+		const oversizedResponse = await SELF.fetch("https://example.com/api/batches/import", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${managerToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				name: "超限导入",
+				source: "vitest",
+				cost: 0,
+				customers: Array.from({ length: 1001 }, (_, index) => ({ phone: `19${phonePrefix}${index}` })),
+			}),
+		});
+
+		expect(oversizedResponse.status).toBe(400);
+		expect(await oversizedResponse.json()).toEqual({ message: "单次最多导入 1000 条客户线索" });
 	});
 
 	it("rejects disabled users for login, old access tokens, and refresh tokens", async () => {

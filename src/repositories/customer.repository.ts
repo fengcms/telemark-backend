@@ -1,4 +1,4 @@
-import { aliasedTable, and, asc, count, desc, eq, gt, inArray, like, type SQL } from 'drizzle-orm';
+import { aliasedTable, and, asc, count, desc, eq, gt, inArray, like, type SQL, sql } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Db } from '@/db';
 import { assignmentLogs, batches, customers, users } from '@/db/schema';
@@ -125,31 +125,37 @@ export async function createBatch(db: Db, input: CreateBatchInput): Promise<{ id
 	return batch;
 }
 
-export async function findCustomerByPhone(db: Db, phone: string): Promise<{ id: number } | undefined> {
-	return db.query.customers.findFirst({
-		where: eq(customers.phone, phone),
-		columns: { id: true },
-	});
-}
-
-export async function insertCustomer(db: Db, input: InsertCustomerInput): Promise<{ id: number }> {
-	const result = await db
-		.insert(customers)
-		.values({
-			phone: input.phone,
-			name: input.name,
-			company: input.company,
-			batchId: input.batchId,
-		})
-		.returning({ id: customers.id });
-
-	const customer = result[0];
-
-	if (!customer) {
-		throw new Error('创建客户线索失败');
+export async function insertCustomersBatch(db: Db, inputs: InsertCustomerInput[]): Promise<void> {
+	if (inputs.length === 0) {
+		return;
 	}
 
-	return customer;
+	// Keep each statement below D1's 100-bind limit; SQL constants avoid binding numeric defaults per row.
+	const statements = chunk(inputs, 24).map((items) =>
+		db
+			.insert(customers)
+			.values(
+				items.map((item) => ({
+					...item,
+					type: sql.raw('0'),
+					status: sql.raw('0'),
+					isDeleted: sql.raw('0'),
+				})),
+			)
+			.onConflictDoNothing({ target: customers.phone }),
+	);
+
+	await db.batch(statements as [(typeof statements)[number], ...Array<(typeof statements)[number]>]);
+}
+
+export async function countCustomersByBatchId(db: Db, batchId: number): Promise<number> {
+	const rows = await db.select({ total: count() }).from(customers).where(eq(customers.batchId, batchId));
+
+	return rows[0]?.total ?? 0;
+}
+
+export async function deleteBatchById(db: Db, batchId: number): Promise<void> {
+	await db.delete(batches).where(eq(batches.id, batchId));
 }
 
 export async function findActiveUserById(db: Db, userId: number): Promise<{ id: number; role: number; status: number } | undefined> {
@@ -386,4 +392,14 @@ function buildMyCustomerHistoryWhereClause(filters: MyCustomerHistoryFilters): S
 
 function escapeLikeValue(value: string): string {
 	return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+	const chunks: T[][] = [];
+
+	for (let index = 0; index < items.length; index += size) {
+		chunks.push(items.slice(index, index + size));
+	}
+
+	return chunks;
 }
