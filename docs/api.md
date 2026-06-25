@@ -1125,7 +1125,7 @@ curl 'http://localhost:8787/api/my-customers/history?page=0&pagesize=10&sort=-up
 
 ### POST /api/customers/assign
 
-批量分配或回收线索。仅 `role=1` 或 `role=2` 可调用。
+批量分配或回收线索。仅 `role=1` 或 `role=2` 可调用，单次最多 50 条。
 
 请求：
 
@@ -1160,11 +1160,20 @@ curl 'http://localhost:8787/api/my-customers/history?page=0&pagesize=10&sort=-up
 
 - 更新 `customers.owner_id`
 - 写入 `assignment_logs`，记录原销售、新销售、操作者、动作和原因
-- 当前 D1 实现使用 `db.batch()` 承载多语句批量写入
+- 当前 D1 实现使用 `db.batch()` 承载多语句批量写入，分配日志按 D1 绑定参数上限分块写入
 - `targetUserId = null` 表示回收到公海
 - `targetUserId` 非空时，目标用户必须存在、在职，且角色为经理或普通员工
 - 禁止分配给超级管理员或禁用用户
 - 已作废客户不允许分配
+
+错误响应：
+
+| HTTP | 场景 |
+| --- | --- |
+| 400 | 参数不合法、单次超过 50 条、目标用户禁用或目标角色不可分配 |
+| 401 | 未登录或账号已禁用 |
+| 403 | 当前角色无权限 |
+| 404 | 目标员工不存在 |
 
 curl：
 

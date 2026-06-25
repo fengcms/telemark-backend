@@ -32,6 +32,7 @@ const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_MY_CUSTOMER_HISTORY_SORT = '-updatedAt';
 const MY_CUSTOMER_HISTORY_SORT_FIELDS = ['id', 'status', 'type', 'createdAt', 'updatedAt'] as const;
 export const MAX_IMPORT_CUSTOMERS = 1000;
+export const MAX_ASSIGN_CUSTOMERS = 50;
 
 export interface Actor {
 	id: number;
@@ -256,6 +257,10 @@ export async function importBatchService(db: Db, input: ImportBatchInput): Promi
 
 export async function assignCustomersService(db: Db, input: AssignCustomersInput): Promise<AssignCustomersResult> {
 	const uniqueCustomerIds = Array.from(new Set(input.customerIds));
+
+	if (uniqueCustomerIds.length > MAX_ASSIGN_CUSTOMERS) {
+		throw new AssignCustomersError(400, `单次最多分配 ${MAX_ASSIGN_CUSTOMERS} 条客户线索`);
+	}
 
 	if (input.targetUserId !== null) {
 		const targetUser = await findActiveUserById(db, input.targetUserId);

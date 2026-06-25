@@ -763,6 +763,67 @@ describe("Hello World worker", () => {
 		await expectAssign(adminToken, customer.id, null, 200);
 	});
 
+	it("assigns 50 customers with audit logs and rejects oversized batches", async () => {
+		await ensureCrmTables();
+
+		const admin = await createTestUser("assign_bulk_admin", 1);
+		const employee = await createTestUser("assign_bulk_employee", 3);
+		const adminToken = await tokenFor(admin);
+		const customers = [];
+
+		for (let index = 0; index < 51; index += 1) {
+			customers.push(await createCustomer(admin.id, null));
+		}
+
+		const assignResponse = await SELF.fetch("https://example.com/api/customers/assign", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${adminToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				customerIds: customers.slice(0, 50).map((customer) => customer.id),
+				targetUserId: employee.id,
+				reason: "批量分配 50 条",
+			}),
+		});
+
+		expect(assignResponse.status).toBe(200);
+		expect(await assignResponse.json()).toEqual({
+			updatedCount: 50,
+			loggedCount: 50,
+		});
+
+		const assigned = await env.DB.prepare(
+			`SELECT
+				(SELECT count(*) FROM customers WHERE owner_id = ? AND id IN (${customers
+					.slice(0, 50)
+					.map(() => "?")
+					.join(",")})) AS customer_count,
+				(SELECT count(*) FROM assignment_logs WHERE to_user_id = ? AND remark = ?) AS log_count`,
+		)
+			.bind(employee.id, ...customers.slice(0, 50).map((customer) => customer.id), employee.id, "批量分配 50 条")
+			.first<{ customer_count: number; log_count: number }>();
+
+		expect(assigned).toEqual({ customer_count: 50, log_count: 50 });
+
+		const oversizedResponse = await SELF.fetch("https://example.com/api/customers/assign", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${adminToken}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				customerIds: customers.map((customer) => customer.id),
+				targetUserId: employee.id,
+				reason: "超过上限",
+			}),
+		});
+
+		expect(oversizedResponse.status).toBe(400);
+		expect(await oversizedResponse.json()).toEqual({ message: "单次最多分配 50 条客户线索" });
+	});
+
 	it("enforces customer ownership for call reporting", async () => {
 		await ensureCrmTables();
 

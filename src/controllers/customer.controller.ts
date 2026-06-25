@@ -15,6 +15,7 @@ import {
 	listCustomersService,
 	listMyCustomerHistoryService,
 	listMyCustomersService,
+	MAX_ASSIGN_CUSTOMERS,
 	MAX_IMPORT_CUSTOMERS,
 	parseCustomerId,
 	type UpdateCustomerInput,
@@ -120,6 +121,10 @@ export const customerController = {
 
 		if (customerIds.length === 0 || targetUserId === undefined || !reason) {
 			return c.json({ message: '参数错误：customerIds、targetUserId、reason 不合法' }, 400);
+		}
+
+		if (customerIds.length > MAX_ASSIGN_CUSTOMERS) {
+			return c.json({ message: `单次最多分配 ${MAX_ASSIGN_CUSTOMERS} 条客户线索` }, 400);
 		}
 
 		try {

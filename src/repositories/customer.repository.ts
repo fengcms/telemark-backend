@@ -347,12 +347,15 @@ export async function updateCustomersOwnerWithLogs(
 		return;
 	}
 
+	// Each assignment log row binds 6 values; 16 rows keep every INSERT below D1's 100-bind limit.
+	const logInsertStatements = chunk(logs, 16).map((logChunk) => db.insert(assignmentLogs).values(logChunk));
+
 	await db.batch([
 		db
 			.update(customers)
 			.set({ ownerId: targetUserId, updatedAt: new Date().toISOString() })
 			.where(and(inArray(customers.id, customerIds), eq(customers.isDeleted, 0))),
-		db.insert(assignmentLogs).values(logs),
+		...logInsertStatements,
 	]);
 }
 
